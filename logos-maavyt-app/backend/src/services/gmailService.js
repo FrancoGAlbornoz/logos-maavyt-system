@@ -5,7 +5,7 @@ const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
- * Conecta a Gmail vía IMAP y procesa EXCLUSIVAMENTE los correos dentro de la Etiqueta "MAAVYT"
+ * Conecta a Gmail vía IMAP y procesa los correos de la etiqueta "MAAVYT" soportando tablas masivas de servicios
  */
 async function syncGmailVouchers() {
   const user = process.env.GMAIL_USER;
@@ -21,9 +21,9 @@ async function syncGmailVouchers() {
     };
   }
 
-  // Wrapper con timeout de 20 segundos
+  // Wrapper con timeout de 30 segundos
   const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con Gmail IMAP')), 20000)
+    setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con Gmail IMAP')), 30000)
   );
 
   return Promise.race([
@@ -49,7 +49,7 @@ async function performSync(user, password, targetFolder) {
       port: 993,
       tls: true,
       tlsOptions: { rejectUnauthorized: false },
-      authTimeout: 10000
+      authTimeout: 12000
     }
   };
 
@@ -58,16 +58,14 @@ async function performSync(user, password, targetFolder) {
     console.log(`[Gmail Service] Conectando a IMAP Gmail para ${user}...`);
     connection = await imaps.connect(config);
 
-    // Abrir EXCLUSIVAMENTE la etiqueta MAAVYT
-    console.log(`[Gmail Service] Abriendo carpeta / etiqueta de Gmail: "${targetFolder}"`);
+    console.log(`[Gmail Service] Abriendo etiqueta de Gmail: "${targetFolder}"`);
     try {
       await connection.openBox(targetFolder);
     } catch (folderErr) {
-      console.warn(`[Gmail Service] No se pudo abrir la etiqueta "${targetFolder}". Intentando abreviaciones...`);
+      console.warn(`[Gmail Service] No se pudo abrir la etiqueta "${targetFolder}". Intentando INBOX...`);
       await connection.openBox('INBOX');
     }
 
-    // Buscar todos los correos dentro de la etiqueta MAAVYT
     const searchCriteria = ['ALL'];
     const fetchOptions = {
       bodies: [''],
@@ -75,7 +73,7 @@ async function performSync(user, password, targetFolder) {
     };
 
     const messages = await connection.search(searchCriteria, fetchOptions);
-    console.log(`[Gmail Service] Correos en etiqueta "${targetFolder}": ${messages.length}`);
+    console.log(`[Gmail Service] Correos a evaluar en etiqueta "${targetFolder}": ${messages.length}`);
 
     let totalVouchersImported = 0;
     const importedDetails = [];
@@ -86,14 +84,16 @@ async function performSync(user, password, targetFolder) {
       if (allParts && allParts.body) {
         const parsedEmail = await simpleParser(allParts.body);
         const subject = parsedEmail.subject || '';
-        const textBody = parsedEmail.text || parsedEmail.html || '';
+        const textBody = parsedEmail.text || '';
+        const htmlBody = parsedEmail.html || '';
 
-        console.log(`[Gmail Service] Parseando correo de etiqueta MAAVYT: "${subject}"`);
+        console.log(`[Gmail Service] Evaluando mail de etiqueta MAAVYT: "${subject}"`);
 
-        // Extraer servicios usando textParserService con validación estricta
-        const parsedServices = parseVoucherText(textBody);
+        // Extraer servicios soportando tanto tablas HTML como texto tabular
+        const parsedServices = parseVoucherText(textBody, htmlBody);
 
         if (parsedServices.length > 0) {
+          console.log(`[Gmail Service] ¡Se detectaron ${parsedServices.length} servicios en el mail "${subject}"!`);
           const dbConnection = await pool.getConnection();
 
           try {
@@ -109,13 +109,13 @@ async function performSync(user, password, targetFolder) {
               );
 
               if (existing.length > 0) {
-                console.log(`[Gmail Service] Reserva ${srv.nro_reserva} ya existe en DB. Omitiendo.`);
+                console.log(`[Gmail Service] Reserva ${srv.nro_reserva} (${srv.fecha_servicio}) ya existe en DB. Omitiendo duplicado.`);
                 continue;
               }
 
               await dbConnection.beginTransaction();
 
-              // Período quincenal correspondiente
+              // Determinar o crear el período de liquidación correspondiente
               const fechaObj = new Date(srv.fecha_servicio);
               const anio = fechaObj.getUTCFullYear();
               const mes = fechaObj.getUTCMonth() + 1;
@@ -143,7 +143,7 @@ async function performSync(user, password, targetFolder) {
                 periodoId = pRes.insertId;
               }
 
-              // Insertar Servicio
+              // Insertar servicio
               const [res] = await dbConnection.execute(
                 `INSERT INTO servicios (
                   nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
@@ -168,7 +168,7 @@ async function performSync(user, password, targetFolder) {
                   srv.monto_adicionales || 0,
                   srv.total || 0,
                   'Pendiente',
-                  `Importado automáticamente desde Gmail etiqueta [MAAVYT]. Asunto: ${subject}`
+                  `Importado automáticamente desde Gmail [MAAVYT]. Asunto: ${subject}`
                 ]
               );
 
@@ -208,7 +208,7 @@ async function performSync(user, password, targetFolder) {
 
     return {
       success: true,
-      message: `Sincronización de etiqueta "${targetFolder}" completada. Se evaluaron ${messages.length} correo(s) y se importaron ${totalVouchersImported} nueva(s) reserva(s).`,
+      message: `Sincronización completada. Se evaluaron ${messages.length} correo(s) y se importaron ${totalVouchersImported} nueva(s) reserva(s).`,
       emails_processed: messages.length,
       vouchers_imported: totalVouchersImported,
       data: importedDetails

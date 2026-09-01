@@ -1,45 +1,191 @@
 /**
  * textParserService.js
- * Servicio para parsear vouchers estructurados de Logos Travel / MAAVYT
+ * Servicio para parsear vouchers individuales, listas tabulares y tablas HTML de Logos Travel / MAAVYT
  */
 
-function cleanText(str) {
+function cleanHtmlTags(str) {
   if (!str) return '';
-  return str.replace(/\r/g, '').trim();
+  return str
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
- * Parsea un bloque de texto que contiene uno o varios vouchers.
+ * Parsea texto crudo o HTML de vouchers, soportando tablas masivas "SOLICITUD DE SERVICIO".
  * @param {string} rawText 
- * @returns {Array<Object>} Lista de servicios parseados válidos
+ * @param {string} htmlBody 
+ * @returns {Array<Object>} Lista de servicios estructurados
  */
-function parseVoucherText(rawText) {
-  if (!rawText || typeof rawText !== 'string') {
-    return [];
+function parseVoucherText(rawText, htmlBody = '') {
+  if (!rawText && !htmlBody) return [];
+
+  // 1. Intentar parsear tabla HTML si está disponible
+  if (htmlBody && (htmlBody.includes('<table') || htmlBody.includes('<tr'))) {
+    const htmlServices = parseHtmlTable(htmlBody);
+    if (htmlServices.length > 0) {
+      console.log(`[Parser] Se extrajeron ${htmlServices.length} servicios desde tabla HTML.`);
+      return htmlServices;
+    }
   }
 
-  const cleaned = cleanText(rawText);
-  
-  // Separar únicamente por marcadores claros de vouchers
-  const blocks = cleaned.split(/(?=(?:RESERVA|VOUCHER|SOLICITUD DE SERVICIO|SERVICIO N[°º]|---+=+))/i)
+  // 2. Intentar parsear líneas tabulares en texto plano
+  if (rawText) {
+    const tabularServices = parseTabularText(rawText);
+    if (tabularServices.length > 0) {
+      console.log(`[Parser] Se extrajeron ${tabularServices.length} servicios desde texto tabular.`);
+      return tabularServices;
+    }
+  }
+
+  // 3. Fallback: Parsear por tarjetas/bloques individuales
+  return parseBlockCards(rawText || cleanHtmlTags(htmlBody));
+}
+
+/**
+ * Extrae servicios directamente desde la estructura de tabla HTML (tr/td)
+ */
+function parseHtmlTable(htmlBody) {
+  const services = [];
+
+  // Extraer todas las filas <tr>...</tr>
+  const trMatches = htmlBody.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi);
+  if (!trMatches || trMatches.length === 0) return [];
+
+  for (const trHtml of trMatches) {
+    // Extraer celdas <td>...</td> o <th>...</th>
+    const tdMatches = trHtml.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi);
+    if (!tdMatches || tdMatches.length < 5) continue;
+
+    const cells = tdMatches.map(td => cleanHtmlTags(td));
+
+    // Buscar si alguna de las primeras celdas contiene el número de reserva (5 a 7 dígitos)
+    let nroReservaIdx = -1;
+    let nro_reserva = '';
+
+    for (let c = 0; c < Math.min(3, cells.length); c++) {
+      const match = cells[c].match(/\b\d{5,7}(?:-[A-Z0-9]+)?\b/);
+      if (match) {
+        nroReservaIdx = c;
+        nro_reserva = match[0];
+        break;
+      }
+    }
+
+    if (nroReservaIdx === -1 || !nro_reserva) continue;
+
+    // Asignar celdas según posición relativa
+    const categoria = cells[nroReservaIdx + 1] || 'Auto Std';
+    const rawFecha = cells[nroReservaIdx + 2] || '';
+    const rawHora = cells[nroReservaIdx + 3] || '00:00';
+    const origen = cells[nroReservaIdx + 4] || 'A definir';
+    const destino = cells[nroReservaIdx + 5] || 'A definir';
+    const rawPasajeros = cells[nroReservaIdx + 6] || '';
+    const observacion = cells[nroReservaIdx + 7] || '';
+
+    // Validar fecha
+    const fecha_servicio = formatToISODate(rawFecha);
+    const hora_servicio = formatToISOTime(rawHora);
+
+    // Extraer Pasajeros
+    const pasajeros = parsePasajerosString(rawPasajeros);
+
+    services.push({
+      nro_reserva,
+      fecha_servicio,
+      hora_servicio,
+      categoria_vehiculo: normalizeCategoria(categoria),
+      origen,
+      destino,
+      vuelo_observacion: observacion || null,
+      subtotal: 0,
+      monto_espera: 0,
+      monto_adicionales: 0,
+      total: 0,
+      pasajeros: pasajeros.length > 0 ? pasajeros : [{ nombre_completo: 'A DEFINIR', documento_o_referencia: null }]
+    });
+  }
+
+  return services;
+}
+
+/**
+ * Extrae servicios desde filas tabulares en texto plano
+ */
+function parseTabularText(rawText) {
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+  const services = [];
+
+  const rowRegex = /^\s*(\d{5,7}(?:-[A-Z0-9]+)?)\s+(Auto\s*Std|Auto|Ejecutivo|Van|Minibus)?\s*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})\s+(\d{1,2}:\d{2})\s+(.+)$/i;
+
+  for (const line of lines) {
+    const match = line.match(rowRegex);
+    if (match) {
+      const nro_reserva = match[1];
+      const categoria = match[2] || 'Auto Std';
+      const fecha_servicio = formatToISODate(match[3]);
+      const hora_servicio = formatToISOTime(match[4]);
+      const rest = match[5];
+
+      // Intentar dividir el resto entre Origen, Destino y Pasajero
+      const parts = rest.split(/\s{2,}|\t/);
+      let origen = 'A definir';
+      let destino = 'A definir';
+      let rawPasajeros = '';
+      let obs = '';
+
+      if (parts.length >= 3) {
+        origen = parts[0];
+        destino = parts[1];
+        rawPasajeros = parts[2];
+        obs = parts.slice(3).join(' ');
+      } else {
+        origen = rest;
+      }
+
+      services.push({
+        nro_reserva,
+        fecha_servicio,
+        hora_servicio,
+        categoria_vehiculo: normalizeCategoria(categoria),
+        origen,
+        destino,
+        vuelo_observacion: obs || null,
+        subtotal: 0,
+        monto_espera: 0,
+        monto_adicionales: 0,
+        total: 0,
+        pasajeros: parsePasajerosString(rawPasajeros)
+      });
+    }
+  }
+
+  return services;
+}
+
+/**
+ * Parsea por tarjetas individuales (Fallback)
+ */
+function parseBlockCards(text) {
+  const blocks = text.split(/(?=(?:RESERVA|VOUCHER|SOLICITUD DE SERVICIO|SERVICIO N[°º]|---+=+))/i)
     .filter(b => b.trim().length > 0);
 
   const results = [];
-
   for (const block of blocks) {
     const parsed = parseSingleBlock(block);
     if (parsed) {
       results.push(parsed);
     }
   }
-
   return results;
 }
 
-/**
- * Parsea un único bloque de voucher con validaciones estrictas
- * @param {string} block 
- */
 function parseSingleBlock(block) {
   const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
 
@@ -51,106 +197,47 @@ function parseSingleBlock(block) {
   let destino = '';
   let vuelo_observacion = '';
   let pasajeros = [];
-  let subtotal = 0;
-  let monto_espera = 0;
-  let monto_adicionales = 0;
-  let total = 0;
 
-  const reservaRegex = /(?:RESERVA|VOUCHER|CODIGO|SOLICITUD|CONFIRMACION)[:\s#]*([A-Z0-9\/-]{4,15})/i;
+  const reservaRegex = /(?:RESERVA|VOUCHER|CODIGO|SOLICITUD)[:\s#]*([A-Z0-9\/-]{4,15})/i;
   const fechaRegex = /(?:FECHA)[:\s]*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})|(\b\d{4}-\d{2}-\d{2}\b)|(\b\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4}\b)/i;
   const horaRegex = /(?:HORA|HS|HORARIO)[:\s]*(\d{1,2}:\d{2}(?::\d{2})?)|(\b\d{1,2}:\d{2}\b)/i;
-  const categoriaRegex = /\b(Auto Std|Auto|Ejecutivo|Van|Minibus)\b/i;
-  const vueloRegex = /(?:VUELO|FLIGHT|AEROLINEA)[:\s]*([A-Z0-9\s]+)|(\b[A-Z]{2}\s?\d{3,4}\b)/i;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Reserva (exigir al menos 4 caracteres numéricos o formateados)
     if (!nro_reserva) {
       const match = line.match(reservaRegex);
       if (match && match[1].length >= 4) {
         nro_reserva = match[1].trim();
       } else {
         const standaloneMatch = line.match(/\b\d{5,7}(?:-[A-Z0-9]+)?\b/);
-        if (standaloneMatch && i < 3) {
-          nro_reserva = standaloneMatch[0];
-        }
+        if (standaloneMatch && i < 3) nro_reserva = standaloneMatch[0];
       }
     }
 
-    // Fecha
     if (!fecha_servicio) {
       const match = line.match(fechaRegex);
-      if (match) {
-        const rawDate = match[1] || match[2] || match[3];
-        fecha_servicio = formatToISODate(rawDate);
-      }
+      if (match) fecha_servicio = formatToISODate(match[1] || match[2] || match[3]);
     }
 
-    // Hora
     if (hora_servicio === '00:00:00') {
       const match = line.match(horaRegex);
-      if (match) {
-        const rawTime = match[1] || match[2];
-        hora_servicio = formatToISOTime(rawTime);
-      }
+      if (match) hora_servicio = formatToISOTime(match[1] || match[2]);
     }
 
-    // Categoría
-    const catMatch = line.match(categoriaRegex);
-    if (catMatch) {
-      categoria_vehiculo = normalizeCategoria(catMatch[1]);
+    if (/(?:ORIGEN|DESDE|PICKUP)[:\s]*(.+)/i.test(line)) {
+      origen = line.replace(/(?:ORIGEN|DESDE|PICKUP)[:\s]*/i, '').trim();
     }
-
-    // Origen
-    if (/(?:ORIGEN|DESDE|PICKUP|RETIRO)[:\s]*(.+)/i.test(line)) {
-      origen = line.replace(/(?:ORIGEN|DESDE|PICKUP|RETIRO)[:\s]*/i, '').trim();
+    if (/(?:DESTINO|HASTA|DROPOFF)[:\s]*(.+)/i.test(line)) {
+      destino = line.replace(/(?:DESTINO|HASTA|DROPOFF)[:\s]*/i, '').trim();
     }
-
-    // Destino
-    if (/(?:DESTINO|HASTA|DROPOFF|LLEGADA)[:\s]*(.+)/i.test(line)) {
-      destino = line.replace(/(?:DESTINO|HASTA|DROPOFF|LLEGADA)[:\s]*/i, '').trim();
-    }
-
-    // Vuelo / Obs
-    const vMatch = line.match(vueloRegex);
-    if (vMatch && !vuelo_observacion) {
-      vuelo_observacion = (vMatch[1] || vMatch[2]).trim();
-    }
-
-    // Pasajeros
     if (/(?:PASAJEROS?|PAX)[:\s]*(.+)/i.test(line)) {
-      const paxText = line.replace(/(?:PASAJEROS?|PAX)[:\s]*/i, '').trim();
-      paxText.split(/[\/;,\n]/).forEach(p => {
-        const cleanedPax = p.trim();
-        if (cleanedPax && cleanedPax.length > 2) {
-          pasajeros.push(extractPassengerInfo(cleanedPax));
-        }
-      });
-    }
-
-    // Importes
-    if (/(?:SUBTOTAL|TARIFA BASE|BASE)[:\s]*\$?\s*([\d\.,]+)/i.test(line)) {
-      const m = line.match(/(?:SUBTOTAL|TARIFA BASE|BASE)[:\s]*\$?\s*([\d\.,]+)/i);
-      if (m) subtotal = parseMoney(m[1]);
-    }
-    if (/(?:ESPERA|MONTO ESPERA)[:\s]*\$?\s*([\d\.,]+)/i.test(line)) {
-      const m = line.match(/(?:ESPERA|MONTO ESPERA)[:\s]*\$?\s*([\d\.,]+)/i);
-      if (m) monto_espera = parseMoney(m[1]);
-    }
-    if (/(?:TOTAL)[:\s]*\$?\s*([\d\.,]+)/i.test(line)) {
-      const m = line.match(/(?:TOTAL)[:\s]*\$?\s*([\d\.,]+)/i);
-      if (m) total = parseMoney(m[1]);
+      pasajeros = parsePasajerosString(line.replace(/(?:PASAJEROS?|PAX)[:\s]*/i, ''));
     }
   }
 
-  // VALIDACION ESTRICTA: Descartar si no hay nro de reserva válido O si no tiene origen/destino
   if (!nro_reserva || nro_reserva.length < 4 || /^(de|el|la|los|un|una|S|S\/N)$/i.test(nro_reserva)) {
     return null;
-  }
-
-  if (total === 0 && subtotal > 0) {
-    total = subtotal + monto_espera + monto_adicionales;
   }
 
   return {
@@ -161,28 +248,34 @@ function parseSingleBlock(block) {
     origen: origen || 'A definir',
     destino: destino || 'A definir',
     vuelo_observacion: vuelo_observacion || null,
-    subtotal,
-    monto_espera,
-    monto_adicionales,
-    total,
-    pasajeros: pasajeros.length > 0 ? pasajeros : [{ nombre_completo: 'A DEFINIR', documento_o_referencia: null }],
-    observaciones_internas: null
+    subtotal: 0,
+    monto_espera: 0,
+    monto_adicionales: 0,
+    total: 0,
+    pasajeros: pasajeros.length > 0 ? pasajeros : [{ nombre_completo: 'A DEFINIR', documento_o_referencia: null }]
   };
 }
 
-function extractPassengerInfo(rawPax) {
-  const dniMatch = rawPax.match(/(?:DNI|DOC|REF)[:\s]*([\d\.]+)/i);
-  let documento = dniMatch ? dniMatch[1].replace(/\./g, '') : null;
-  let nombre = rawPax;
+function parsePasajerosString(rawPasajeros) {
+  if (!rawPasajeros) return [];
+  const list = [];
 
-  if (dniMatch) {
-    nombre = rawPax.replace(dniMatch[0], '').replace(/^[\s\-\:]+/, '').trim();
+  // Dividir por ' - ', '/', o ';'
+  const parts = rawPasajeros.split(/\s+-\s+|\/|;/);
+  for (const p of parts) {
+    const cleaned = p.trim();
+    if (cleaned && cleaned.length > 2) {
+      const dniMatch = cleaned.match(/(?:DNI|DOC|REF)[:\s]*([\d\.]+)/i);
+      const doc = dniMatch ? dniMatch[1].replace(/\./g, '') : null;
+      const name = dniMatch ? cleaned.replace(dniMatch[0], '').replace(/^[\s\-\:]+/, '').trim() : cleaned;
+
+      list.push({
+        nombre_completo: name.toUpperCase(),
+        documento_o_referencia: doc
+      });
+    }
   }
-
-  return {
-    nombre_completo: nombre.toUpperCase(),
-    documento_o_referencia: documento
-  };
+  return list;
 }
 
 function formatToISODate(dateStr) {
@@ -210,6 +303,7 @@ function formatToISOTime(timeStr) {
 }
 
 function normalizeCategoria(cat) {
+  if (!cat) return 'Auto Std';
   const lower = cat.toLowerCase();
   if (lower.includes('van')) return 'Van';
   if (lower.includes('minibus')) return 'Minibus';
@@ -218,14 +312,8 @@ function normalizeCategoria(cat) {
   return 'Auto Std';
 }
 
-function parseMoney(valStr) {
-  if (!valStr) return 0;
-  const cleaned = valStr.replace(/\./g, '').replace(',', '.');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
-}
-
 module.exports = {
   parseVoucherText,
-  parseSingleBlock
+  parseHtmlTable,
+  parseTabularText
 };
