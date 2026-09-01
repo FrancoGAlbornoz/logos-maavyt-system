@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { fetchApi } from '../api/axiosInstance';
-import { Search, Filter, Plus, Edit2, Trash2, CheckCircle, Clock, XCircle, AlertTriangle } from 'lucide-react';
+import { Search, Filter, Plus, Edit2, Trash2, CheckCircle, Clock, XCircle, AlertTriangle, Calendar } from 'lucide-react';
 
 export default function ServiciosPage() {
   const [servicios, setServicios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [estadoFilter, setEstadoFilter] = useState('');
+  const [fechaDesde, setFechaDesde] = useState('2026-09-01'); // Por defecto desde 01/09/2026 en adelante
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [quickFilter, setQuickFilter] = useState('septiembre'); // 'septiembre' | 'proximos3' | 'todos'
+
   const [editingService, setEditingService] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -16,6 +20,30 @@ export default function ServiciosPage() {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (estadoFilter) params.append('estado', estadoFilter);
+
+      // Aplicar filtros de fecha según preset o selección
+      if (quickFilter === 'septiembre') {
+        params.append('fecha_desde', '2026-09-01');
+      } else if (quickFilter === 'proximos3') {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        const limitDate = new Date();
+        limitDate.setDate(today.getDate() + 3);
+        const lYyyy = limitDate.getFullYear();
+        const lMm = String(limitDate.getMonth() + 1).padStart(2, '0');
+        const lDd = String(limitDate.getDate()).padStart(2, '0');
+        const limitStr = `${lYyyy}-${lMm}-${lDd}`;
+
+        params.append('fecha_desde', '2026-09-01'); // Desde septiembre en adelante
+        params.append('fecha_hasta', limitStr);
+      } else if (quickFilter === 'custom') {
+        if (fechaDesde) params.append('fecha_desde', fechaDesde);
+        if (fechaHasta) params.append('fecha_hasta', fechaHasta);
+      }
 
       const res = await fetchApi(`/servicios?${params.toString()}`);
       setServicios(res.data || []);
@@ -28,7 +56,7 @@ export default function ServiciosPage() {
 
   useEffect(() => {
     loadServicios();
-  }, [search, estadoFilter]);
+  }, [search, estadoFilter, quickFilter, fechaDesde, fechaHasta]);
 
   const handleStatusChange = async (id, newStatus) => {
     try {
@@ -65,7 +93,7 @@ export default function ServiciosPage() {
   const openNewModal = () => {
     setEditingService({
       nro_reserva: '',
-      fecha_servicio: new Date().toISOString().split('T')[0],
+      fecha_servicio: '2026-09-01',
       hora_servicio: '12:00',
       categoria_vehiculo: 'Auto Std',
       origen: '',
@@ -123,11 +151,11 @@ export default function ServiciosPage() {
   return (
     <div className="space-y-6">
       
-      {/* Header y Filtros */}
+      {/* Header */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Servicios Operativos</h2>
-          <p className="text-slate-500 text-sm">Administra los traslados programados y edita su estado en tiempo real.</p>
+          <h2 className="text-xl font-bold text-slate-800">Servicios Operativos Vigentes</h2>
+          <p className="text-slate-500 text-sm">Mostrando servicios desde el <b>01/09/2026 en adelante</b>. ({servicios.length} traslados vigentes)</p>
         </div>
 
         <button
@@ -138,33 +166,77 @@ export default function ServiciosPage() {
         </button>
       </div>
 
-      {/* Barra de Búsqueda y Filtros */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            placeholder="Buscar por nro. reserva, pasajero, origen o destino..."
-            className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      {/* Barra de Búsqueda y Filtros Rápidos */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+        <div className="flex flex-col md:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+            <input
+              type="text"
+              placeholder="Buscar por nro. reserva, pasajero, origen o destino..."
+              className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <select
+              className="p-2 border border-slate-300 rounded-lg text-sm bg-white"
+              value={estadoFilter}
+              onChange={(e) => setEstadoFilter(e.target.value)}
+            >
+              <option value="">Todos los Estados</option>
+              <option value="Confirmado">Confirmado</option>
+              <option value="Realizado">Realizado</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="No Show">No Show</option>
+              <option value="Cancelado">Cancelado</option>
+            </select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <select
-            className="p-2 border border-slate-300 rounded-lg text-sm bg-white"
-            value={estadoFilter}
-            onChange={(e) => setEstadoFilter(e.target.value)}
-          >
-            <option value="">Todos los Estados</option>
-            <option value="Confirmado">Confirmado</option>
-            <option value="Realizado">Realizado</option>
-            <option value="Pendiente">Pendiente</option>
-            <option value="No Show">No Show</option>
-            <option value="Cancelado">Cancelado</option>
-          </select>
+        {/* Botones de Presets de Fecha */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <Calendar className="w-3.5 h-3.5 text-blue-600" /> Rango Operativo:
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setQuickFilter('septiembre')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                quickFilter === 'septiembre'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              🗓️ Desde 01/09/2026 en adelante (Predeterminado)
+            </button>
+
+            <button
+              onClick={() => setQuickFilter('proximos3')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                quickFilter === 'proximos3'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              ⚡ Próximos 3 Días
+            </button>
+
+            <button
+              onClick={() => setQuickFilter('todos')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                quickFilter === 'todos'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              🌐 Todos (Sin Filtro de Fecha)
+            </button>
+          </div>
         </div>
       </div>
 
@@ -173,7 +245,7 @@ export default function ServiciosPage() {
         {loading ? (
           <div className="p-8 text-center text-slate-500 text-sm">Cargando servicios operativos...</div>
         ) : servicios.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-sm">No se encontraron servicios registrados.</div>
+          <div className="p-8 text-center text-slate-500 text-sm">No se encontraron servicios vigentes para el rango seleccionado.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm border-collapse">
