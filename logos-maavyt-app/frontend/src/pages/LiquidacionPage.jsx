@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchApi } from '../api/axiosInstance';
-import { FileSpreadsheet, FileText, Calendar, DollarSign, Activity, CheckSquare } from 'lucide-react';
+import { FileSpreadsheet, FileText, Calendar, DollarSign, Activity, CheckSquare, Clock } from 'lucide-react';
 
 export default function LiquidacionPage() {
   const [periodos, setPeriodos] = useState([]);

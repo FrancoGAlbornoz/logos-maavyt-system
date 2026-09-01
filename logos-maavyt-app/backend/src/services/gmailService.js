@@ -5,7 +5,7 @@ const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
- * Conecta a Gmail vía IMAP y procesa los correos de vouchers no leídos (UNSEEN)
+ * Conecta a Gmail vía IMAP y procesa los correos de vouchers no leídos (UNSEEN) con timeout de seguridad
  */
 async function syncGmailVouchers() {
   const user = process.env.GMAIL_USER;
@@ -20,6 +20,26 @@ async function syncGmailVouchers() {
     };
   }
 
+  // Wrapper con timeout de 15 segundos para evitar colgar la petición HTTP
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con el servidor IMAP de Gmail')), 15000)
+  );
+
+  return Promise.race([
+    performSync(user, password),
+    timeoutPromise
+  ]).catch(err => {
+    console.error('[Gmail Service] Error o Timeout:', err.message);
+    return {
+      success: false,
+      message: err.message,
+      emails_processed: 0,
+      vouchers_imported: 0
+    };
+  });
+}
+
+async function performSync(user, password) {
   const config = {
     imap: {
       user: user.trim(),
@@ -28,7 +48,7 @@ async function syncGmailVouchers() {
       port: 993,
       tls: true,
       tlsOptions: { rejectUnauthorized: false },
-      authTimeout: 10000
+      authTimeout: 8000
     }
   };
 
@@ -41,7 +61,7 @@ async function syncGmailVouchers() {
     // Buscar correos no leídos
     const searchCriteria = ['UNSEEN'];
     const fetchOptions = {
-      bodies: ['HEADER', 'TEXT', ''],
+      bodies: [''],
       markSeen: true
     };
 
@@ -53,8 +73,6 @@ async function syncGmailVouchers() {
 
     for (const item of messages) {
       const allParts = item.parts.find(part => part.which === '');
-      const id = item.attributes.uid;
-      const idHeader = `Imap-UID: ${id}`;
 
       if (allParts && allParts.body) {
         const parsedEmail = await simpleParser(allParts.body);
@@ -95,7 +113,7 @@ async function syncGmailVouchers() {
                   srv.monto_espera || 0,
                   srv.monto_adicionales || 0,
                   srv.total || 0,
-                  'Pendiente', // Ingresa como Pendiente para revisión
+                  'Pendiente',
                   `Importado automáticamente desde Gmail. Asunto: ${subject}`
                 ]
               );
@@ -127,7 +145,7 @@ async function syncGmailVouchers() {
       }
     }
 
-    connection.end();
+    try { connection.end(); } catch (e) {}
 
     return {
       success: true,
@@ -140,13 +158,7 @@ async function syncGmailVouchers() {
     if (connection) {
       try { connection.end(); } catch (e) {}
     }
-    console.error('[Gmail Service] Error durante sincronización IMAP:', error.message);
-    return {
-      success: false,
-      message: `Error al conectar a Gmail IMAP: ${error.message}`,
-      emails_processed: 0,
-      vouchers_imported: 0
-    };
+    throw error;
   }
 }
 
