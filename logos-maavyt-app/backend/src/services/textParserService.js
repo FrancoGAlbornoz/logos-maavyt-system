@@ -1,6 +1,7 @@
 /**
  * textParserService.js
- * Servicio para parsear vouchers individuales, listas tabulares y tablas HTML de Logos Travel / MAAVYT
+ * Servicio inteligente para la detección de intenciones (Altas, Modificaciones, Cancelaciones, Confirmaciones)
+ * y extracción de reservas masivas o individuales de Logos Travel / MAAVYT
  */
 
 function cleanHtmlTags(str) {
@@ -18,10 +19,43 @@ function cleanHtmlTags(str) {
 }
 
 /**
+ * Detecta la intención principal del correo (CANCELACION, MODIFICACION, CONFIRMACION, ALTA)
+ * @param {string} subject 
+ * @param {string} textBody 
+ * @returns {string} 'CANCELACION' | 'MODIFICACION' | 'CONFIRMACION' | 'ALTA'
+ */
+function detectEmailIntent(subject = '', textBody = '') {
+  const full = `${subject} ${textBody}`.toUpperCase();
+
+  if (/CANCELACIO?N|CANCELADO|CANCELAR|SE CANCELA|BAJA DE SERVICIO/i.test(full)) {
+    return 'CANCELACION';
+  }
+  if (/MODIFICACIO?N|MODIFICA|CAMBIO DE HORA|CAMBIO DE VUELO|REPROGRAMADO/i.test(full)) {
+    return 'MODIFICACION';
+  }
+  if (/CONFIRMACIO?N|CONFIRMADO|VOUCHER CONFIRMADO/i.test(full)) {
+    return 'CONFIRMACION';
+  }
+  return 'ALTA';
+}
+
+/**
+ * Extrae todos los números de reserva válidos (5 a 7 dígitos) presentes en el texto o asunto
+ * @param {string} text 
+ * @param {string} subject 
+ * @returns {Array<string>} Lista de números de reserva únicos
+ */
+function extractReservationNumbers(text = '', subject = '') {
+  const combined = `${subject} ${text}`;
+  const matches = combined.match(/\b\d{5,7}(?:-[A-Z0-9]+)?\b/gi) || [];
+  
+  // Eliminar duplicados y códigos inválidos
+  const unique = Array.from(new Set(matches.map(m => m.toUpperCase())));
+  return unique.filter(nro => nro.length >= 5 && !/^(11111|12345|00000)$/.test(nro));
+}
+
+/**
  * Parsea texto crudo o HTML de vouchers, soportando tablas masivas "SOLICITUD DE SERVICIO".
- * @param {string} rawText 
- * @param {string} htmlBody 
- * @returns {Array<Object>} Lista de servicios estructurados
  */
 function parseVoucherText(rawText, htmlBody = '') {
   if (!rawText && !htmlBody) return [];
@@ -30,7 +64,6 @@ function parseVoucherText(rawText, htmlBody = '') {
   if (htmlBody && (htmlBody.includes('<table') || htmlBody.includes('<tr'))) {
     const htmlServices = parseHtmlTable(htmlBody);
     if (htmlServices.length > 0) {
-      console.log(`[Parser] Se extrajeron ${htmlServices.length} servicios desde tabla HTML.`);
       return htmlServices;
     }
   }
@@ -39,7 +72,6 @@ function parseVoucherText(rawText, htmlBody = '') {
   if (rawText) {
     const tabularServices = parseTabularText(rawText);
     if (tabularServices.length > 0) {
-      console.log(`[Parser] Se extrajeron ${tabularServices.length} servicios desde texto tabular.`);
       return tabularServices;
     }
   }
@@ -54,18 +86,15 @@ function parseVoucherText(rawText, htmlBody = '') {
 function parseHtmlTable(htmlBody) {
   const services = [];
 
-  // Extraer todas las filas <tr>...</tr>
   const trMatches = htmlBody.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi);
   if (!trMatches || trMatches.length === 0) return [];
 
   for (const trHtml of trMatches) {
-    // Extraer celdas <td>...</td> o <th>...</th>
     const tdMatches = trHtml.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi);
-    if (!tdMatches || tdMatches.length < 5) continue;
+    if (!tdMatches || tdMatches.length < 4) continue;
 
     const cells = tdMatches.map(td => cleanHtmlTags(td));
 
-    // Buscar si alguna de las primeras celdas contiene el número de reserva (5 a 7 dígitos)
     let nroReservaIdx = -1;
     let nro_reserva = '';
 
@@ -80,7 +109,6 @@ function parseHtmlTable(htmlBody) {
 
     if (nroReservaIdx === -1 || !nro_reserva) continue;
 
-    // Asignar celdas según posición relativa
     const categoria = cells[nroReservaIdx + 1] || 'Auto Std';
     const rawFecha = cells[nroReservaIdx + 2] || '';
     const rawHora = cells[nroReservaIdx + 3] || '00:00';
@@ -89,11 +117,8 @@ function parseHtmlTable(htmlBody) {
     const rawPasajeros = cells[nroReservaIdx + 6] || '';
     const observacion = cells[nroReservaIdx + 7] || '';
 
-    // Validar fecha
     const fecha_servicio = formatToISODate(rawFecha);
     const hora_servicio = formatToISOTime(rawHora);
-
-    // Extraer Pasajeros
     const pasajeros = parsePasajerosString(rawPasajeros);
 
     services.push({
@@ -133,7 +158,6 @@ function parseTabularText(rawText) {
       const hora_servicio = formatToISOTime(match[4]);
       const rest = match[5];
 
-      // Intentar dividir el resto entre Origen, Destino y Pasajero
       const parts = rest.split(/\s{2,}|\t/);
       let origen = 'A definir';
       let destino = 'A definir';
@@ -259,8 +283,6 @@ function parseSingleBlock(block) {
 function parsePasajerosString(rawPasajeros) {
   if (!rawPasajeros) return [];
   const list = [];
-
-  // Dividir por ' - ', '/', o ';'
   const parts = rawPasajeros.split(/\s+-\s+|\/|;/);
   for (const p of parts) {
     const cleaned = p.trim();
@@ -313,6 +335,8 @@ function normalizeCategoria(cat) {
 }
 
 module.exports = {
+  detectEmailIntent,
+  extractReservationNumbers,
   parseVoucherText,
   parseHtmlTable,
   parseTabularText

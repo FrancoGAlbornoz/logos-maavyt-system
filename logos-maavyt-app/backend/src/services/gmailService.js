@@ -1,15 +1,11 @@
 const imaps = require('imap-simple');
 const { simpleParser } = require('mailparser');
-const { parseVoucherText } = require('./textParserService');
+const { detectEmailIntent, extractReservationNumbers, parseVoucherText } = require('./textParserService');
 const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
- * Conecta a Gmail vía IMAP y procesa correos de la etiqueta "MAAVYT" aplicando filtros de fecha y acciones (Altas, Modificaciones, Cancelaciones)
- * @param {Object} options
- * @param {string} options.modo 'cierre_quincenal' | 'operativo_3dias' | 'personalizado'
- * @param {string} options.fecha_desde 'YYYY-MM-DD'
- * @param {string} options.fecha_hasta 'YYYY-MM-DD'
+ * Conecta a Gmail vía IMAP y procesa la etiqueta "MAAVYT" interpretando intenciones (Altas, Modificaciones, Cancelaciones, Confirmaciones)
  */
 async function syncGmailVouchers(options = {}) {
   const user = process.env.GMAIL_USER;
@@ -27,7 +23,6 @@ async function syncGmailVouchers(options = {}) {
     };
   }
 
-  // Wrapper con timeout de 30 segundos
   const timeoutPromise = new Promise((_, reject) => 
     setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con Gmail IMAP')), 30000)
   );
@@ -51,12 +46,10 @@ async function syncGmailVouchers(options = {}) {
 async function performSync(user, password, targetFolder, options = {}) {
   const { modo = 'cierre_quincenal', fecha_desde, fecha_hasta } = options;
 
-  // Calcular rango de fechas
   const today = new Date();
-  let minDate = fecha_desde ? new Date(fecha_desde) : new Date(today.getFullYear(), today.getMonth(), 1); // Por defecto 1 del mes actual
+  let minDate = fecha_desde ? new Date(fecha_desde) : new Date(today.getFullYear(), today.getMonth(), 1);
 
   if (modo === 'operativo_3dias') {
-    // Desde ayer hasta hoy + 3 días
     minDate = new Date();
     minDate.setDate(today.getDate() - 1);
   }
@@ -70,7 +63,7 @@ async function performSync(user, password, targetFolder, options = {}) {
   const minDateStr = minDate.toISOString().split('T')[0];
   const maxDateStr = maxDate ? maxDate.toISOString().split('T')[0] : null;
 
-  console.log(`[Gmail Service] Modo: ${modo} | Filtro Fecha Desde: ${minDateStr} | Hasta: ${maxDateStr || 'Sin límite'}`);
+  console.log(`[Gmail Service] Sincronizando | Modo: ${modo} | Desde: ${minDateStr} | Hasta: ${maxDateStr || 'Sin límite'}`);
 
   const config = {
     imap: {
@@ -116,52 +109,57 @@ async function performSync(user, password, targetFolder, options = {}) {
         const textBody = parsedEmail.text || '';
         const htmlBody = parsedEmail.html || '';
 
-        // Detectar si es Cancelación
-        const isCancellation = /CANCELACIO?N/i.test(`${subject} ${textBody}`);
-        // Detectar si es Modificación
-        const isModification = /MODIFICACIO?N/i.test(`${subject} ${textBody}`);
+        // Detectar Intención del correo
+        const intent = detectEmailIntent(subject, `${textBody} ${htmlBody}`);
+        console.log(`[Gmail Service] Correo: "${subject}" | Intención Detectada: ${intent}`);
 
-        const parsedServices = parseVoucherText(textBody, htmlBody);
+        const dbConnection = await pool.getConnection();
 
-        if (parsedServices.length > 0) {
-          const dbConnection = await pool.getConnection();
+        try {
+          // INTENCION 1: CANCELACION
+          if (intent === 'CANCELACION') {
+            const reservationNumbers = extractReservationNumbers(`${textBody} ${htmlBody}`, subject);
+            for (const nroRes of reservationNumbers) {
+              const [upd] = await dbConnection.execute(
+                `UPDATE servicios SET estado_servicio = 'Cancelado' WHERE nro_reserva = ?`,
+                [nroRes]
+              );
+              if (upd.affectedRows > 0) {
+                cancellationsUpdated += upd.affectedRows;
+                console.log(`[Gmail Service] ✅ Servicio #${nroRes} actualizado automáticamente a CANCELADO.`);
+              }
+            }
+            continue;
+          }
 
-          try {
+          // INTENCION 2: CONFIRMACION
+          if (intent === 'CONFIRMACION') {
+            const reservationNumbers = extractReservationNumbers(`${textBody} ${htmlBody}`, subject);
+            for (const nroRes of reservationNumbers) {
+              await dbConnection.execute(
+                `UPDATE servicios SET estado_servicio = 'Confirmado' WHERE nro_reserva = ? AND estado_servicio = 'Pendiente'`,
+                [nroRes]
+              );
+            }
+          }
+
+          // INTENCION 3: MODIFICACION o ALTA
+          const parsedServices = parseVoucherText(textBody, htmlBody);
+
+          if (parsedServices.length > 0) {
             for (const srv of parsedServices) {
               if (!srv.nro_reserva || srv.nro_reserva === 'S/N') continue;
 
-              // Filtro por fecha de servicio (ignorar servicios anteriores a minDateStr)
-              if (srv.fecha_servicio < minDateStr) {
-                console.log(`[Gmail Service] Omitiendo reserva ${srv.nro_reserva} por fecha anterior a filtro (${srv.fecha_servicio} < ${minDateStr})`);
-                continue;
-              }
+              if (srv.fecha_servicio < minDateStr) continue;
+              if (maxDateStr && srv.fecha_servicio > maxDateStr) continue;
 
-              if (maxDateStr && srv.fecha_servicio > maxDateStr) {
-                console.log(`[Gmail Service] Omitiendo reserva ${srv.nro_reserva} por fecha posterior a filtro (${srv.fecha_servicio} > ${maxDateStr})`);
-                continue;
-              }
-
-              // CASO 1: Cancelación de Servicio
-              if (isCancellation) {
-                const [upd] = await dbConnection.execute(
-                  `UPDATE servicios SET estado_servicio = 'Cancelado' WHERE nro_reserva = ?`,
-                  [srv.nro_reserva]
-                );
-                if (upd.affectedRows > 0) {
-                  cancellationsUpdated++;
-                  console.log(`[Gmail Service] Servicio #${srv.nro_reserva} marcado como CANCELADO.`);
-                }
-                continue;
-              }
-
-              // CASO 2: Modificación o Alta
               const [existing] = await dbConnection.execute(
                 `SELECT id FROM servicios WHERE nro_reserva = ? AND fecha_servicio = ?`,
                 [srv.nro_reserva, srv.fecha_servicio]
               );
 
               if (existing.length > 0) {
-                if (isModification) {
+                if (intent === 'MODIFICACION') {
                   const srvId = existing[0].id;
                   await dbConnection.execute(
                     `UPDATE servicios SET
@@ -170,19 +168,18 @@ async function performSync(user, password, targetFolder, options = {}) {
                     WHERE id = ?`,
                     [
                       srv.hora_servicio, srv.categoria_vehiculo, srv.origen, srv.destino,
-                      srv.vuelo_observacion || subject, `Modificado automáticamente desde Gmail el ${new Date().toLocaleDateString('es-AR')}`,
+                      srv.vuelo_observacion || subject,
+                      `Modificado automáticamente el ${new Date().toLocaleDateString('es-AR')}`,
                       srvId
                     ]
                   );
                   modificationsUpdated++;
-                  console.log(`[Gmail Service] Servicio #${srv.nro_reserva} ACTUALIZADO por modificación.`);
-                } else {
-                  console.log(`[Gmail Service] Reserva ${srv.nro_reserva} (${srv.fecha_servicio}) ya existe. Omitiendo.`);
+                  console.log(`[Gmail Service] ✅ Servicio #${srv.nro_reserva} ACTUALIZADO por modificación.`);
                 }
                 continue;
               }
 
-              // CASO 3: Alta de nuevo servicio
+              // Alta de Nuevo Servicio
               await dbConnection.beginTransaction();
 
               const fechaObj = new Date(srv.fecha_servicio);
@@ -224,7 +221,7 @@ async function performSync(user, password, targetFolder, options = {}) {
                   srv.fecha_servicio, srv.hora_servicio || '00:00:00', srv.categoria_vehiculo || 'Auto Std',
                   srv.origen || 'A definir', srv.destino || 'A definir', srv.vuelo_observacion || subject,
                   srv.subtotal || 0, srv.monto_espera || 0, srv.monto_adicionales || 0, srv.total || 0,
-                  'Pendiente', `Importado desde Gmail [MAAVYT]. Asunto: ${subject}`
+                  'Confirmado', `Importado desde Gmail [MAAVYT]. Asunto: ${subject}`
                 ]
               );
 
@@ -244,12 +241,9 @@ async function performSync(user, password, targetFolder, options = {}) {
               vouchersImported++;
               importedDetails.push({ id: srvId, nro_reserva: srv.nro_reserva, fecha_servicio: srv.fecha_servicio });
             }
-          } catch (dbErr) {
-            await dbConnection.rollback();
-            console.error('[Gmail Service] Error al guardar en DB:', dbErr);
-          } finally {
-            dbConnection.release();
           }
+        } finally {
+          dbConnection.release();
         }
       }
     }
