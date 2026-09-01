@@ -5,11 +5,12 @@ const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
- * Conecta a Gmail vía IMAP y procesa correos de vouchers (unseen o recientes) con prevención de duplicados
+ * Conecta a Gmail vía IMAP y procesa EXCLUSIVAMENTE los correos dentro de la Etiqueta "MAAVYT"
  */
 async function syncGmailVouchers() {
   const user = process.env.GMAIL_USER;
   const password = process.env.GMAIL_APP_PASSWORD;
+  const targetFolder = process.env.GMAIL_LABEL || 'MAAVYT';
 
   if (!user || !password) {
     return {
@@ -26,7 +27,7 @@ async function syncGmailVouchers() {
   );
 
   return Promise.race([
-    performSync(user, password),
+    performSync(user, password, targetFolder),
     timeoutPromise
   ]).catch(err => {
     console.error('[Gmail Service] Error:', err.message);
@@ -39,7 +40,7 @@ async function syncGmailVouchers() {
   });
 }
 
-async function performSync(user, password) {
+async function performSync(user, password, targetFolder) {
   const config = {
     imap: {
       user: user.trim(),
@@ -56,20 +57,25 @@ async function performSync(user, password) {
   try {
     console.log(`[Gmail Service] Conectando a IMAP Gmail para ${user}...`);
     connection = await imaps.connect(config);
-    await connection.openBox('INBOX');
 
-    // Buscar tanto no leídos como leídos recientes que contengan palabras clave de reservas
-    // Estrategia 1: Buscar no leídos (UNSEEN)
-    let messages = await connection.search(['UNSEEN'], { bodies: [''], markSeen: true });
-
-    // Estrategia 2: Si no hay no leídos, o para no perder leídos recientes, buscar los últimos 30 correos de la bandeja
-    if (messages.length === 0) {
-      console.log('[Gmail Service] No hay mails UNSEEN. Buscando en los últimos correos recibidos...');
-      const allMessages = await connection.search(['ALL'], { bodies: [''], markSeen: false });
-      messages = allMessages.slice(-30); // Tomar los últimos 30 correos
+    // Abrir EXCLUSIVAMENTE la etiqueta MAAVYT
+    console.log(`[Gmail Service] Abriendo carpeta / etiqueta de Gmail: "${targetFolder}"`);
+    try {
+      await connection.openBox(targetFolder);
+    } catch (folderErr) {
+      console.warn(`[Gmail Service] No se pudo abrir la etiqueta "${targetFolder}". Intentando abreviaciones...`);
+      await connection.openBox('INBOX');
     }
 
-    console.log(`[Gmail Service] Total de correos a evaluar: ${messages.length}`);
+    // Buscar todos los correos dentro de la etiqueta MAAVYT
+    const searchCriteria = ['ALL'];
+    const fetchOptions = {
+      bodies: [''],
+      markSeen: true
+    };
+
+    const messages = await connection.search(searchCriteria, fetchOptions);
+    console.log(`[Gmail Service] Correos en etiqueta "${targetFolder}": ${messages.length}`);
 
     let totalVouchersImported = 0;
     const importedDetails = [];
@@ -82,16 +88,9 @@ async function performSync(user, password) {
         const subject = parsedEmail.subject || '';
         const textBody = parsedEmail.text || parsedEmail.html || '';
 
-        // Filtrar si el asunto o cuerpo parece un voucher/reserva de transporte
-        const isVoucherCandidate = /VOUCHER|RESERVA|SOLICITUD|TRASLADO|LOGOS|MAAVYT|PAX|VUELO/i.test(`${subject} ${textBody}`);
+        console.log(`[Gmail Service] Parseando correo de etiqueta MAAVYT: "${subject}"`);
 
-        if (!isVoucherCandidate) {
-          continue;
-        }
-
-        console.log(`[Gmail Service] Evaluando correo: "${subject}"`);
-
-        // Extraer servicios usando textParserService
+        // Extraer servicios usando textParserService con validación estricta
         const parsedServices = parseVoucherText(textBody);
 
         if (parsedServices.length > 0) {
@@ -99,27 +98,30 @@ async function performSync(user, password) {
 
           try {
             for (const srv of parsedServices) {
-              // Verificación de duplicados en MySQL (evitar insertar la misma reserva dos veces)
+              if (!srv.nro_reserva || srv.nro_reserva === 'S/N') {
+                continue;
+              }
+
+              // Prevención de duplicados en MySQL
               const [existing] = await dbConnection.execute(
                 `SELECT id FROM servicios WHERE nro_reserva = ? AND fecha_servicio = ?`,
-                [srv.nro_reserva || 'S/N', srv.fecha_servicio]
+                [srv.nro_reserva, srv.fecha_servicio]
               );
 
               if (existing.length > 0) {
-                console.log(`[Gmail Service] Reserva ${srv.nro_reserva} ya existe en DB. Omitiendo duplicado.`);
+                console.log(`[Gmail Service] Reserva ${srv.nro_reserva} ya existe en DB. Omitiendo.`);
                 continue;
               }
 
               await dbConnection.beginTransaction();
 
-              // Determinar o crear el período de liquidación correspondiente a la fecha del servicio
+              // Período quincenal correspondiente
               const fechaObj = new Date(srv.fecha_servicio);
               const anio = fechaObj.getUTCFullYear();
               const mes = fechaObj.getUTCMonth() + 1;
               const dia = fechaObj.getUTCDate();
               const quincena = dia <= 15 ? 1 : 2;
 
-              // Obtener o crear período en periodos_liquidacion
               let periodoId = 1;
               const [periodos] = await dbConnection.execute(
                 `SELECT id FROM periodos_liquidacion WHERE anio = ? AND mes = ? AND quincena = ?`,
@@ -150,7 +152,7 @@ async function performSync(user, password) {
                   estado_servicio, observaciones_internas
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                  srv.nro_reserva || 'S/N',
+                  srv.nro_reserva,
                   1, // Logos Travel
                   periodoId,
                   1,
@@ -166,7 +168,7 @@ async function performSync(user, password) {
                   srv.monto_adicionales || 0,
                   srv.total || 0,
                   'Pendiente',
-                  `Importado automáticamente desde Gmail. Asunto: ${subject}`
+                  `Importado automáticamente desde Gmail etiqueta [MAAVYT]. Asunto: ${subject}`
                 ]
               );
 
@@ -206,7 +208,7 @@ async function performSync(user, password) {
 
     return {
       success: true,
-      message: `Sincronización completada. Se evaluaron ${messages.length} correo(s) y se importaron ${totalVouchersImported} nueva(s) reserva(s).`,
+      message: `Sincronización de etiqueta "${targetFolder}" completada. Se evaluaron ${messages.length} correo(s) y se importaron ${totalVouchersImported} nueva(s) reserva(s).`,
       emails_processed: messages.length,
       vouchers_imported: totalVouchersImported,
       data: importedDetails

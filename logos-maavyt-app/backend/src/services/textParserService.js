@@ -1,6 +1,6 @@
 /**
  * textParserService.js
- * Servicio inteligente para parsear vouchers de texto crudo de Logos Travel / MAAVYT
+ * Servicio para parsear vouchers estructurados de Logos Travel / MAAVYT
  */
 
 function cleanText(str) {
@@ -11,7 +11,7 @@ function cleanText(str) {
 /**
  * Parsea un bloque de texto que contiene uno o varios vouchers.
  * @param {string} rawText 
- * @returns {Array<Object>} Lista de servicios parseados
+ * @returns {Array<Object>} Lista de servicios parseados válidos
  */
 function parseVoucherText(rawText) {
   if (!rawText || typeof rawText !== 'string') {
@@ -20,7 +20,7 @@ function parseVoucherText(rawText) {
 
   const cleaned = cleanText(rawText);
   
-  // Separar múltiples vouchers si vienen demarcados por líneas divisoras o palabra RESERVA / VOUCHER
+  // Separar únicamente por marcadores claros de vouchers
   const blocks = cleaned.split(/(?=(?:RESERVA|VOUCHER|SOLICITUD DE SERVICIO|SERVICIO N[°º]|---+=+))/i)
     .filter(b => b.trim().length > 0);
 
@@ -37,14 +37,13 @@ function parseVoucherText(rawText) {
 }
 
 /**
- * Parsea un único bloque de voucher
+ * Parsea un único bloque de voucher con validaciones estrictas
  * @param {string} block 
  */
 function parseSingleBlock(block) {
   const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
 
-  // Defaults
-  let nro_reserva = 'S/N';
+  let nro_reserva = null;
   let fecha_servicio = null;
   let hora_servicio = '00:00:00';
   let categoria_vehiculo = 'Auto Std';
@@ -56,10 +55,8 @@ function parseSingleBlock(block) {
   let monto_espera = 0;
   let monto_adicionales = 0;
   let total = 0;
-  let observaciones_internas = '';
 
-  // Regex Patterns
-  const reservaRegex = /(?:RESERVA|VOUCHER|N[°º]|CODIGO|SOLICITUD)[:\s]*([A-Z0-9\/-]+)/i;
+  const reservaRegex = /(?:RESERVA|VOUCHER|CODIGO|SOLICITUD|CONFIRMACION)[:\s#]*([A-Z0-9\/-]{4,15})/i;
   const fechaRegex = /(?:FECHA)[:\s]*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})|(\b\d{4}-\d{2}-\d{2}\b)|(\b\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4}\b)/i;
   const horaRegex = /(?:HORA|HS|HORARIO)[:\s]*(\d{1,2}:\d{2}(?::\d{2})?)|(\b\d{1,2}:\d{2}\b)/i;
   const categoriaRegex = /\b(Auto Std|Auto|Ejecutivo|Van|Minibus)\b/i;
@@ -68,13 +65,12 @@ function parseSingleBlock(block) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Reserva
-    if (nro_reserva === 'S/N') {
+    // Reserva (exigir al menos 4 caracteres numéricos o formateados)
+    if (!nro_reserva) {
       const match = line.match(reservaRegex);
-      if (match) {
+      if (match && match[1].length >= 4) {
         nro_reserva = match[1].trim();
       } else {
-        // Intentar detectar número de reserva aislado tipo 230309 o 227777-A
         const standaloneMatch = line.match(/\b\d{5,7}(?:-[A-Z0-9]+)?\b/);
         if (standaloneMatch && i < 3) {
           nro_reserva = standaloneMatch[0];
@@ -100,7 +96,7 @@ function parseSingleBlock(block) {
       }
     }
 
-    // Categoria Vehículo
+    // Categoría
     const catMatch = line.match(categoriaRegex);
     if (catMatch) {
       categoria_vehiculo = normalizeCategoria(catMatch[1]);
@@ -116,13 +112,10 @@ function parseSingleBlock(block) {
       destino = line.replace(/(?:DESTINO|HASTA|DROPOFF|LLEGADA)[:\s]*/i, '').trim();
     }
 
-    // Vuelo / Observaciones
+    // Vuelo / Obs
     const vMatch = line.match(vueloRegex);
     if (vMatch && !vuelo_observacion) {
       vuelo_observacion = (vMatch[1] || vMatch[2]).trim();
-    } else if (/(?:OBSERVACIO?N|NOTAS?|CARTEL)[:\s]*(.+)/i.test(line)) {
-      const obsText = line.replace(/(?:OBSERVACIO?N|NOTAS?|CARTEL)[:\s]*/i, '').trim();
-      vuelo_observacion = vuelo_observacion ? `${vuelo_observacion} - ${obsText}` : obsText;
     }
 
     // Pasajeros
@@ -130,13 +123,13 @@ function parseSingleBlock(block) {
       const paxText = line.replace(/(?:PASAJEROS?|PAX)[:\s]*/i, '').trim();
       paxText.split(/[\/;,\n]/).forEach(p => {
         const cleanedPax = p.trim();
-        if (cleanedPax) {
+        if (cleanedPax && cleanedPax.length > 2) {
           pasajeros.push(extractPassengerInfo(cleanedPax));
         }
       });
     }
 
-    // Importes Financieros
+    // Importes
     if (/(?:SUBTOTAL|TARIFA BASE|BASE)[:\s]*\$?\s*([\d\.,]+)/i.test(line)) {
       const m = line.match(/(?:SUBTOTAL|TARIFA BASE|BASE)[:\s]*\$?\s*([\d\.,]+)/i);
       if (m) subtotal = parseMoney(m[1]);
@@ -145,33 +138,24 @@ function parseSingleBlock(block) {
       const m = line.match(/(?:ESPERA|MONTO ESPERA)[:\s]*\$?\s*([\d\.,]+)/i);
       if (m) monto_espera = parseMoney(m[1]);
     }
-    if (/(?:ADICIONALES|PEAJES)[:\s]*\$?\s*([\d\.,]+)/i.test(line)) {
-      const m = line.match(/(?:ADICIONALES|PEAJES)[:\s]*\$?\s*([\d\.,]+)/i);
-      if (m) monto_adicionales = parseMoney(m[1]);
-    }
     if (/(?:TOTAL)[:\s]*\$?\s*([\d\.,]+)/i.test(line)) {
       const m = line.match(/(?:TOTAL)[:\s]*\$?\s*([\d\.,]+)/i);
       if (m) total = parseMoney(m[1]);
     }
   }
 
-  // Si no se detectó origen/destino explícitamente, intentar inferir por líneas libres
-  if (!origen && lines.length > 2) {
-    const originLine = lines.find(l => /ARPT|Aeropuerto|Hotel|Hilton|Centro|TUC/i.test(l) && !l.includes(destino));
-    if (originLine) origen = originLine;
+  // VALIDACION ESTRICTA: Descartar si no hay nro de reserva válido O si no tiene origen/destino
+  if (!nro_reserva || nro_reserva.length < 4 || /^(de|el|la|los|un|una|S|S\/N)$/i.test(nro_reserva)) {
+    return null;
   }
 
   if (total === 0 && subtotal > 0) {
     total = subtotal + monto_espera + monto_adicionales;
   }
 
-  if (!fecha_servicio) {
-    fecha_servicio = new Date().toISOString().split('T')[0];
-  }
-
   return {
     nro_reserva,
-    fecha_servicio,
+    fecha_servicio: fecha_servicio || new Date().toISOString().split('T')[0],
     hora_servicio,
     categoria_vehiculo,
     origen: origen || 'A definir',
@@ -181,13 +165,12 @@ function parseSingleBlock(block) {
     monto_espera,
     monto_adicionales,
     total,
-    pasajeros: pasajeros.length > 0 ? pasajeros : [{ nombre_completo: 'A DEFINIR', documento_o_referencia: null, telefono: null }],
-    observaciones_internas: observaciones_internas || null
+    pasajeros: pasajeros.length > 0 ? pasajeros : [{ nombre_completo: 'A DEFINIR', documento_o_referencia: null }],
+    observaciones_internas: null
   };
 }
 
 function extractPassengerInfo(rawPax) {
-  // Ejemplo: "DNI: 48704300 - TORRES DIEGO" o "CALCATERRA, PABLO"
   const dniMatch = rawPax.match(/(?:DNI|DOC|REF)[:\s]*([\d\.]+)/i);
   let documento = dniMatch ? dniMatch[1].replace(/\./g, '') : null;
   let nombre = rawPax;
@@ -198,8 +181,7 @@ function extractPassengerInfo(rawPax) {
 
   return {
     nombre_completo: nombre.toUpperCase(),
-    documento_o_referencia: documento,
-    telefono: null
+    documento_o_referencia: documento
   };
 }
 
@@ -238,7 +220,6 @@ function normalizeCategoria(cat) {
 
 function parseMoney(valStr) {
   if (!valStr) return 0;
-  // Reemplazar puntos de miles y coma decimal por punto decimal standard
   const cleaned = valStr.replace(/\./g, '').replace(',', '.');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
