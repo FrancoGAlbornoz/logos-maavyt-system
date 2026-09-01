@@ -5,6 +5,7 @@ const serviciosRoutes = require('./serviciosRoutes');
 const parserRoutes = require('./parserRoutes');
 const periodosRoutes = require('./periodosRoutes');
 const reportesRoutes = require('./reportesRoutes');
+const gmailRoutes = require('./gmailRoutes');
 
 // Healthcheck
 router.get('/health', (req, res) => {
@@ -20,5 +21,6 @@ router.use('/servicios', serviciosRoutes);
 router.use('/parser', parserRoutes);
 router.use('/periodos', periodosRoutes);
 router.use('/reportes', reportesRoutes);
+router.use('/gmail', gmailRoutes);
 
 module.exports = router;

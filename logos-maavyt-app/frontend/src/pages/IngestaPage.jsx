@@ -1,13 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { fetchApi } from '../api/axiosInstance';
-import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, UserPlus, Trash2 } from 'lucide-react';
+import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, Mail, RefreshCw, UserPlus, Trash2 } from 'lucide-react';
 
 export default function IngestaPage({ onImportSuccess }) {
   const [rawText, setRawText] = useState('');
   const [parsedItems, setParsedItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [syncingGmail, setSyncingGmail] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState(null);
+  const [gmailStatus, setGmailStatus] = useState(null);
+
+  const checkGmailStatus = async () => {
+    try {
+      const res = await fetchApi('/gmail/status');
+      setGmailStatus(res);
+    } catch (err) {
+      console.error('Error al obtener estado de Gmail:', err);
+    }
+  };
+
+  useEffect(() => {
+    checkGmailStatus();
+  }, []);
+
+  const handleSyncGmail = async () => {
+    setSyncingGmail(true);
+    setMessage(null);
+    try {
+      const res = await fetchApi('/gmail/sync', { method: 'POST' });
+      if (res.success) {
+        setMessage({
+          type: 'success',
+          text: `Sincronización de Gmail exitosa: Se leyeron ${res.emails_processed} correo(s) y se importaron ${res.vouchers_imported} reserva(s) automáticamente.`
+        });
+        if (res.vouchers_imported > 0 && onImportSuccess) {
+          onImportSuccess();
+        }
+      } else {
+        setMessage({ type: 'error', text: res.message });
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message || 'Error al sincronizar con Gmail.' });
+    } finally {
+      setSyncingGmail(false);
+    }
+  };
 
   const handlePreview = async () => {
     if (!rawText.trim()) return;
@@ -81,15 +119,45 @@ export default function IngestaPage({ onImportSuccess }) {
     <div className="space-y-6">
       
       {/* Header */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-blue-600" />
-          Ingesta Inteligente de Vouchers y Mails
-        </h2>
-        <p className="text-slate-500 text-sm mt-1">
-          Pega el texto crudo del correo o voucher recibido de Logos Travel para extraer automáticamente los datos del servicio.
-        </p>
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-blue-600" />
+            Ingesta Inteligente de Vouchers y Mails
+          </h2>
+          <p className="text-slate-500 text-sm mt-1">
+            Sincroniza directamente con tu Gmail o pega el texto del voucher para extraer los traslados.
+          </p>
+        </div>
+
+        {/* Botón de Sincronización Automática con Gmail */}
+        <button
+          onClick={handleSyncGmail}
+          disabled={syncingGmail}
+          className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-bold text-sm shadow-sm transition-all self-start md:self-auto"
+        >
+          <RefreshCw className={`w-4 h-4 ${syncingGmail ? 'animate-spin' : ''}`} />
+          {syncingGmail ? 'Sincronizando Gmail...' : 'Sincronizar desde Gmail Ahora'}
+        </button>
       </div>
+
+      {/* Banner de Estado de Gmail */}
+      {gmailStatus && (
+        <div className={`p-4 rounded-xl border flex items-center justify-between text-xs font-medium ${
+          gmailStatus.configured 
+            ? 'bg-blue-50/50 border-blue-200 text-blue-900' 
+            : 'bg-amber-50 border-amber-200 text-amber-900'
+        }`}>
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-blue-600" />
+            <span>
+              {gmailStatus.configured 
+                ? `Gmail Vinculado: ${gmailStatus.gmail_user} (Lectura automática activa)`
+                : 'Gmail no configurado. Para activar lectura automática, agrega GMAIL_USER y GMAIL_APP_PASSWORD en .env'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {message && (
         <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
@@ -100,15 +168,15 @@ export default function IngestaPage({ onImportSuccess }) {
         </div>
       )}
 
-      {/* Input de Texto */}
+      {/* Input Manual de Texto Alternativo */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
         <label className="block text-sm font-semibold text-slate-700">
-          Texto Crudo del Voucher / Email
+          Carga Manual por Texto (Alternativa)
         </label>
         <textarea
-          rows={6}
+          rows={5}
           className="w-full p-3 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-slate-50"
-          placeholder="Ejemplo: RESERVA 230309 FECHA 18/08/2026 HORA 14:50 PAX TORRES DIEGO / CALCATERRA PABLO ORIGEN AEROPUERTO TUC DESTINO HILTON TUCUMAN VUELO AR 1476..."
+          placeholder="Ejemplo: RESERVA 230309 FECHA 18/08/2026 HORA 14:50 PAX TORRES DIEGO / CALCATERRA PABLO ORIGEN AEROPUERTO TUC DESTINO HILTON TUCUMAN..."
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
         />
