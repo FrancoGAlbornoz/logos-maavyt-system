@@ -11,7 +11,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 flex flex-col">
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
       
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="flex-1 w-full max-w-[1600px] mx-auto px-3 sm:px-6 py-4">
         {activeTab === 'ingesta' && (
           <IngestaPage onImportSuccess={() => setActiveTab('servicios')} />
         )}

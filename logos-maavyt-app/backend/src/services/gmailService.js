@@ -1,11 +1,12 @@
 const imaps = require('imap-simple');
 const { simpleParser } = require('mailparser');
 const { detectEmailIntent, extractReservationNumbers, parseVoucherText } = require('./textParserService');
+const { calculatePrice } = require('./tariffService');
 const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
- * Conecta a Gmail vía IMAP y procesa la etiqueta "MAAVYT" interpretando intenciones (Altas, Modificaciones, Cancelaciones, Confirmaciones)
+ * Conecta a Gmail vía IMAP y procesa la etiqueta "MAAVYT" asignando precios automáticos según el Tarifario
  */
 async function syncGmailVouchers(options = {}) {
   const user = process.env.GMAIL_USER;
@@ -109,14 +110,12 @@ async function performSync(user, password, targetFolder, options = {}) {
         const textBody = parsedEmail.text || '';
         const htmlBody = parsedEmail.html || '';
 
-        // Detectar Intención del correo
         const intent = detectEmailIntent(subject, `${textBody} ${htmlBody}`);
-        console.log(`[Gmail Service] Correo: "${subject}" | Intención Detectada: ${intent}`);
 
         const dbConnection = await pool.getConnection();
 
         try {
-          // INTENCION 1: CANCELACION
+          // CANCELACION
           if (intent === 'CANCELACION') {
             const reservationNumbers = extractReservationNumbers(`${textBody} ${htmlBody}`, subject);
             for (const nroRes of reservationNumbers) {
@@ -126,13 +125,13 @@ async function performSync(user, password, targetFolder, options = {}) {
               );
               if (upd.affectedRows > 0) {
                 cancellationsUpdated += upd.affectedRows;
-                console.log(`[Gmail Service] ✅ Servicio #${nroRes} actualizado automáticamente a CANCELADO.`);
+                console.log(`[Gmail Service] ✅ Servicio #${nroRes} actualizado a CANCELADO.`);
               }
             }
             continue;
           }
 
-          // INTENCION 2: CONFIRMACION
+          // CONFIRMACION
           if (intent === 'CONFIRMACION') {
             const reservationNumbers = extractReservationNumbers(`${textBody} ${htmlBody}`, subject);
             for (const nroRes of reservationNumbers) {
@@ -143,7 +142,7 @@ async function performSync(user, password, targetFolder, options = {}) {
             }
           }
 
-          // INTENCION 3: MODIFICACION o ALTA
+          // MODIFICACION o ALTA
           const parsedServices = parseVoucherText(textBody, htmlBody);
 
           if (parsedServices.length > 0) {
@@ -152,6 +151,18 @@ async function performSync(user, password, targetFolder, options = {}) {
 
               if (srv.fecha_servicio < minDateStr) continue;
               if (maxDateStr && srv.fecha_servicio > maxDateStr) continue;
+
+              // Calcular Tarifa Oficial si viene en $0
+              let subtotal = srv.subtotal;
+              let montoEspera = srv.monto_espera;
+              let total = srv.total;
+
+              if (total === 0 || subtotal === 0) {
+                const priceCalc = await calculatePrice(srv.origen, srv.destino, srv.categoria_vehiculo, srv.minutos_espera || 0);
+                subtotal = priceCalc.subtotal;
+                montoEspera = priceCalc.monto_espera;
+                total = priceCalc.total;
+              }
 
               const [existing] = await dbConnection.execute(
                 `SELECT id FROM servicios WHERE nro_reserva = ? AND fecha_servicio = ?`,
@@ -164,17 +175,19 @@ async function performSync(user, password, targetFolder, options = {}) {
                   await dbConnection.execute(
                     `UPDATE servicios SET
                       hora_servicio = ?, categoria_vehiculo = ?, origen = ?, destino = ?,
+                      subtotal = ?, monto_espera = ?, total = ?,
                       vuelo_observacion = ?, observaciones_internas = ?
                     WHERE id = ?`,
                     [
                       srv.hora_servicio, srv.categoria_vehiculo, srv.origen, srv.destino,
+                      subtotal, montoEspera, total,
                       srv.vuelo_observacion || subject,
                       `Modificado automáticamente el ${new Date().toLocaleDateString('es-AR')}`,
                       srvId
                     ]
                   );
                   modificationsUpdated++;
-                  console.log(`[Gmail Service] ✅ Servicio #${srv.nro_reserva} ACTUALIZADO por modificación.`);
+                  console.log(`[Gmail Service] ✅ Servicio #${srv.nro_reserva} ACTUALIZADO.`);
                 }
                 continue;
               }
@@ -220,7 +233,7 @@ async function performSync(user, password, targetFolder, options = {}) {
                   srv.nro_reserva, 1, periodoId, 1, 1,
                   srv.fecha_servicio, srv.hora_servicio || '00:00:00', srv.categoria_vehiculo || 'Auto Std',
                   srv.origen || 'A definir', srv.destino || 'A definir', srv.vuelo_observacion || subject,
-                  srv.subtotal || 0, srv.monto_espera || 0, srv.monto_adicionales || 0, srv.total || 0,
+                  subtotal, montoEspera, srv.monto_adicionales || 0, total,
                   'Confirmado', `Importado desde Gmail [MAAVYT]. Asunto: ${subject}`
                 ]
               );
