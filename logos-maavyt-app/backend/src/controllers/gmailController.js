@@ -1,11 +1,12 @@
 const { syncGmailVouchers } = require('../services/gmailService');
 
 /**
- * Triggerea la sincronización manual instantánea de Gmail
+ * Triggerea la sincronización manual instantánea de Gmail con opciones de filtro
  */
 async function syncGmail(req, res, next) {
   try {
-    const result = await syncGmailVouchers();
+    const { modo, fecha_desde, fecha_hasta } = req.body || {};
+    const result = await syncGmailVouchers({ modo, fecha_desde, fecha_hasta });
     res.json(result);
   } catch (error) {
     next(error);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchApi } from '../api/axiosInstance';
-import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, Mail, RefreshCw, UserPlus, Trash2 } from 'lucide-react';
+import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, Mail, RefreshCw, UserPlus, Trash2, Calendar, Filter } from 'lucide-react';
 
 export default function IngestaPage({ onImportSuccess }) {
   const [rawText, setRawText] = useState('');
@@ -10,6 +10,10 @@ export default function IngestaPage({ onImportSuccess }) {
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState(null);
   const [gmailStatus, setGmailStatus] = useState(null);
+
+  // Opciones de Filtro para Gmail Sync
+  const [syncModo, setSyncModo] = useState('cierre_quincenal'); // 'cierre_quincenal' | 'operativo_3dias' | 'personalizado'
+  const [fechaDesde, setFechaDesde] = useState('2026-09-01'); // Por defecto excluye agosto
 
   const checkGmailStatus = async () => {
     try {
@@ -28,13 +32,22 @@ export default function IngestaPage({ onImportSuccess }) {
     setSyncingGmail(true);
     setMessage(null);
     try {
-      const res = await fetchApi('/gmail/sync', { method: 'POST' });
+      const bodyPayload = {
+        modo: syncModo,
+        fecha_desde: syncModo === 'personalizado' ? fechaDesde : (syncModo === 'cierre_quincenal' ? '2026-09-01' : null)
+      };
+
+      const res = await fetchApi('/gmail/sync', {
+        method: 'POST',
+        body: JSON.stringify(bodyPayload)
+      });
+
       if (res.success) {
         setMessage({
           type: 'success',
-          text: `Sincronización de Gmail exitosa: Se leyeron ${res.emails_processed} correo(s) y se importaron ${res.vouchers_imported} reserva(s) automáticamente.`
+          text: `Sincronización Gmail (${syncModo === 'operativo_3dias' ? 'Control 3 días' : 'Cierre Quincenal'}): ${res.vouchers_imported} nuevos, ${res.modifications_updated || 0} modificados, ${res.cancellations_updated || 0} cancelados.`
         });
-        if (res.vouchers_imported > 0 && onImportSuccess) {
+        if ((res.vouchers_imported > 0 || res.cancellations_updated > 0 || res.modifications_updated > 0) && onImportSuccess) {
           onImportSuccess();
         }
       } else {
@@ -118,27 +131,91 @@ export default function IngestaPage({ onImportSuccess }) {
   return (
     <div className="space-y-6">
       
-      {/* Header */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-blue-600" />
-            Ingesta Inteligente de Vouchers y Mails
-          </h2>
-          <p className="text-slate-500 text-sm mt-1">
-            Sincroniza directamente con tu Gmail o pega el texto del voucher para extraer los traslados.
-          </p>
+      {/* Header y Control de Filtros de Sincronización */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-blue-600" />
+              Ingesta e Extracción Inteligente de Mails
+            </h2>
+            <p className="text-slate-500 text-sm mt-1">
+              Sincroniza tu etiqueta <b>MAAVYT</b> de Gmail evaluando altas, cancelaciones y modificaciones automáticas.
+            </p>
+          </div>
+
+          <button
+            onClick={handleSyncGmail}
+            disabled={syncingGmail}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-md transition-all self-start md:self-auto"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncingGmail ? 'animate-spin' : ''}`} />
+            {syncingGmail ? 'Procesando Mails...' : 'Sincronizar desde Gmail Ahora'}
+          </button>
         </div>
 
-        {/* Botón de Sincronización Automática con Gmail */}
-        <button
-          onClick={handleSyncGmail}
-          disabled={syncingGmail}
-          className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-bold text-sm shadow-sm transition-all self-start md:self-auto"
-        >
-          <RefreshCw className={`w-4 h-4 ${syncingGmail ? 'animate-spin' : ''}`} />
-          {syncingGmail ? 'Sincronizando Gmail...' : 'Sincronizar desde Gmail Ahora'}
-        </button>
+        {/* Panel de Configuración de Filtro de Sincronización */}
+        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase">
+            <Filter className="w-4 h-4 text-blue-600" /> Filtro de Extracción:
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <label className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+              syncModo === 'operativo_3dias' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300'
+            }`}>
+              <input
+                type="radio"
+                name="modo"
+                value="operativo_3dias"
+                checked={syncModo === 'operativo_3dias'}
+                onChange={() => setSyncModo('operativo_3dias')}
+                className="hidden"
+              />
+              ⚡ Control Operativo Próximos 3 días
+            </label>
+
+            <label className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+              syncModo === 'cierre_quincenal' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300'
+            }`}>
+              <input
+                type="radio"
+                name="modo"
+                value="cierre_quincenal"
+                checked={syncModo === 'cierre_quincenal'}
+                onChange={() => setSyncModo('cierre_quincenal')}
+                className="hidden"
+              />
+              📊 Cierre Quincenal (Desde 01/09/2026)
+            </label>
+
+            <label className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+              syncModo === 'personalizado' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300'
+            }`}>
+              <input
+                type="radio"
+                name="modo"
+                value="personalizado"
+                checked={syncModo === 'personalizado'}
+                onChange={() => setSyncModo('personalizado')}
+                className="hidden"
+              />
+              🗓️ Fecha Personalizada
+            </label>
+
+            {syncModo === 'personalizado' && (
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-slate-500 font-medium">Desde:</span>
+                <input
+                  type="date"
+                  className="p-1 border border-slate-300 rounded text-xs bg-white"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Banner de Estado de Gmail */}
@@ -152,8 +229,8 @@ export default function IngestaPage({ onImportSuccess }) {
             <Mail className="w-4 h-4 text-blue-600" />
             <span>
               {gmailStatus.configured 
-                ? `Gmail Vinculado: ${gmailStatus.gmail_user} (Lectura automática activa)`
-                : 'Gmail no configurado. Para activar lectura automática, agrega GMAIL_USER y GMAIL_APP_PASSWORD en .env'}
+                ? `Gmail Vinculado: ${gmailStatus.gmail_user} (Etiqueta oficial MAAVYT)`
+                : 'Gmail no configurado. Ingrese credenciales en el archivo .env'}
             </span>
           </div>
         </div>
@@ -174,7 +251,7 @@ export default function IngestaPage({ onImportSuccess }) {
           Carga Manual por Texto (Alternativa)
         </label>
         <textarea
-          rows={5}
+          rows={4}
           className="w-full p-3 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-slate-50"
           placeholder="Ejemplo: RESERVA 230309 FECHA 18/08/2026 HORA 14:50 PAX TORRES DIEGO / CALCATERRA PABLO ORIGEN AEROPUERTO TUC DESTINO HILTON TUCUMAN..."
           value={rawText}

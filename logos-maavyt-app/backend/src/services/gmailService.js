@@ -5,9 +5,13 @@ const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
- * Conecta a Gmail vía IMAP y procesa los correos de la etiqueta "MAAVYT" soportando tablas masivas de servicios
+ * Conecta a Gmail vía IMAP y procesa correos de la etiqueta "MAAVYT" aplicando filtros de fecha y acciones (Altas, Modificaciones, Cancelaciones)
+ * @param {Object} options
+ * @param {string} options.modo 'cierre_quincenal' | 'operativo_3dias' | 'personalizado'
+ * @param {string} options.fecha_desde 'YYYY-MM-DD'
+ * @param {string} options.fecha_hasta 'YYYY-MM-DD'
  */
-async function syncGmailVouchers() {
+async function syncGmailVouchers(options = {}) {
   const user = process.env.GMAIL_USER;
   const password = process.env.GMAIL_APP_PASSWORD;
   const targetFolder = process.env.GMAIL_LABEL || 'MAAVYT';
@@ -17,7 +21,9 @@ async function syncGmailVouchers() {
       success: false,
       message: 'Gmail no está configurado. Ingrese GMAIL_USER y GMAIL_APP_PASSWORD en el archivo .env',
       emails_processed: 0,
-      vouchers_imported: 0
+      vouchers_imported: 0,
+      cancellations_updated: 0,
+      modifications_updated: 0
     };
   }
 
@@ -27,7 +33,7 @@ async function syncGmailVouchers() {
   );
 
   return Promise.race([
-    performSync(user, password, targetFolder),
+    performSync(user, password, targetFolder, options),
     timeoutPromise
   ]).catch(err => {
     console.error('[Gmail Service] Error:', err.message);
@@ -35,12 +41,37 @@ async function syncGmailVouchers() {
       success: false,
       message: err.message,
       emails_processed: 0,
-      vouchers_imported: 0
+      vouchers_imported: 0,
+      cancellations_updated: 0,
+      modifications_updated: 0
     };
   });
 }
 
-async function performSync(user, password, targetFolder) {
+async function performSync(user, password, targetFolder, options = {}) {
+  const { modo = 'cierre_quincenal', fecha_desde, fecha_hasta } = options;
+
+  // Calcular rango de fechas
+  const today = new Date();
+  let minDate = fecha_desde ? new Date(fecha_desde) : new Date(today.getFullYear(), today.getMonth(), 1); // Por defecto 1 del mes actual
+
+  if (modo === 'operativo_3dias') {
+    // Desde ayer hasta hoy + 3 días
+    minDate = new Date();
+    minDate.setDate(today.getDate() - 1);
+  }
+
+  let maxDate = fecha_hasta ? new Date(fecha_hasta) : null;
+  if (modo === 'operativo_3dias' && !maxDate) {
+    maxDate = new Date();
+    maxDate.setDate(today.getDate() + 4);
+  }
+
+  const minDateStr = minDate.toISOString().split('T')[0];
+  const maxDateStr = maxDate ? maxDate.toISOString().split('T')[0] : null;
+
+  console.log(`[Gmail Service] Modo: ${modo} | Filtro Fecha Desde: ${minDateStr} | Hasta: ${maxDateStr || 'Sin límite'}`);
+
   const config = {
     imap: {
       user: user.trim(),
@@ -58,24 +89,22 @@ async function performSync(user, password, targetFolder) {
     console.log(`[Gmail Service] Conectando a IMAP Gmail para ${user}...`);
     connection = await imaps.connect(config);
 
-    console.log(`[Gmail Service] Abriendo etiqueta de Gmail: "${targetFolder}"`);
     try {
       await connection.openBox(targetFolder);
     } catch (folderErr) {
-      console.warn(`[Gmail Service] No se pudo abrir la etiqueta "${targetFolder}". Intentando INBOX...`);
+      console.warn(`[Gmail Service] No se pudo abrir "${targetFolder}". Usando INBOX...`);
       await connection.openBox('INBOX');
     }
 
     const searchCriteria = ['ALL'];
-    const fetchOptions = {
-      bodies: [''],
-      markSeen: true
-    };
+    const fetchOptions = { bodies: [''], markSeen: true };
 
     const messages = await connection.search(searchCriteria, fetchOptions);
-    console.log(`[Gmail Service] Correos a evaluar en etiqueta "${targetFolder}": ${messages.length}`);
+    console.log(`[Gmail Service] Correos en etiqueta "${targetFolder}": ${messages.length}`);
 
-    let totalVouchersImported = 0;
+    let vouchersImported = 0;
+    let cancellationsUpdated = 0;
+    let modificationsUpdated = 0;
     const importedDetails = [];
 
     for (const item of messages) {
@@ -87,35 +116,75 @@ async function performSync(user, password, targetFolder) {
         const textBody = parsedEmail.text || '';
         const htmlBody = parsedEmail.html || '';
 
-        console.log(`[Gmail Service] Evaluando mail de etiqueta MAAVYT: "${subject}"`);
+        // Detectar si es Cancelación
+        const isCancellation = /CANCELACIO?N/i.test(`${subject} ${textBody}`);
+        // Detectar si es Modificación
+        const isModification = /MODIFICACIO?N/i.test(`${subject} ${textBody}`);
 
-        // Extraer servicios soportando tanto tablas HTML como texto tabular
         const parsedServices = parseVoucherText(textBody, htmlBody);
 
         if (parsedServices.length > 0) {
-          console.log(`[Gmail Service] ¡Se detectaron ${parsedServices.length} servicios en el mail "${subject}"!`);
           const dbConnection = await pool.getConnection();
 
           try {
             for (const srv of parsedServices) {
-              if (!srv.nro_reserva || srv.nro_reserva === 'S/N') {
+              if (!srv.nro_reserva || srv.nro_reserva === 'S/N') continue;
+
+              // Filtro por fecha de servicio (ignorar servicios anteriores a minDateStr)
+              if (srv.fecha_servicio < minDateStr) {
+                console.log(`[Gmail Service] Omitiendo reserva ${srv.nro_reserva} por fecha anterior a filtro (${srv.fecha_servicio} < ${minDateStr})`);
                 continue;
               }
 
-              // Prevención de duplicados en MySQL
+              if (maxDateStr && srv.fecha_servicio > maxDateStr) {
+                console.log(`[Gmail Service] Omitiendo reserva ${srv.nro_reserva} por fecha posterior a filtro (${srv.fecha_servicio} > ${maxDateStr})`);
+                continue;
+              }
+
+              // CASO 1: Cancelación de Servicio
+              if (isCancellation) {
+                const [upd] = await dbConnection.execute(
+                  `UPDATE servicios SET estado_servicio = 'Cancelado' WHERE nro_reserva = ?`,
+                  [srv.nro_reserva]
+                );
+                if (upd.affectedRows > 0) {
+                  cancellationsUpdated++;
+                  console.log(`[Gmail Service] Servicio #${srv.nro_reserva} marcado como CANCELADO.`);
+                }
+                continue;
+              }
+
+              // CASO 2: Modificación o Alta
               const [existing] = await dbConnection.execute(
                 `SELECT id FROM servicios WHERE nro_reserva = ? AND fecha_servicio = ?`,
                 [srv.nro_reserva, srv.fecha_servicio]
               );
 
               if (existing.length > 0) {
-                console.log(`[Gmail Service] Reserva ${srv.nro_reserva} (${srv.fecha_servicio}) ya existe en DB. Omitiendo duplicado.`);
+                if (isModification) {
+                  const srvId = existing[0].id;
+                  await dbConnection.execute(
+                    `UPDATE servicios SET
+                      hora_servicio = ?, categoria_vehiculo = ?, origen = ?, destino = ?,
+                      vuelo_observacion = ?, observaciones_internas = ?
+                    WHERE id = ?`,
+                    [
+                      srv.hora_servicio, srv.categoria_vehiculo, srv.origen, srv.destino,
+                      srv.vuelo_observacion || subject, `Modificado automáticamente desde Gmail el ${new Date().toLocaleDateString('es-AR')}`,
+                      srvId
+                    ]
+                  );
+                  modificationsUpdated++;
+                  console.log(`[Gmail Service] Servicio #${srv.nro_reserva} ACTUALIZADO por modificación.`);
+                } else {
+                  console.log(`[Gmail Service] Reserva ${srv.nro_reserva} (${srv.fecha_servicio}) ya existe. Omitiendo.`);
+                }
                 continue;
               }
 
+              // CASO 3: Alta de nuevo servicio
               await dbConnection.beginTransaction();
 
-              // Determinar o crear el período de liquidación correspondiente
               const fechaObj = new Date(srv.fecha_servicio);
               const anio = fechaObj.getUTCFullYear();
               const mes = fechaObj.getUTCMonth() + 1;
@@ -143,7 +212,6 @@ async function performSync(user, password, targetFolder) {
                 periodoId = pRes.insertId;
               }
 
-              // Insertar servicio
               const [res] = await dbConnection.execute(
                 `INSERT INTO servicios (
                   nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
@@ -152,23 +220,11 @@ async function performSync(user, password, targetFolder) {
                   estado_servicio, observaciones_internas
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                  srv.nro_reserva,
-                  1, // Logos Travel
-                  periodoId,
-                  1,
-                  1,
-                  srv.fecha_servicio,
-                  srv.hora_servicio || '00:00:00',
-                  srv.categoria_vehiculo || 'Auto Std',
-                  srv.origen || 'A definir',
-                  srv.destino || 'A definir',
-                  srv.vuelo_observacion || subject,
-                  srv.subtotal || 0,
-                  srv.monto_espera || 0,
-                  srv.monto_adicionales || 0,
-                  srv.total || 0,
-                  'Pendiente',
-                  `Importado automáticamente desde Gmail [MAAVYT]. Asunto: ${subject}`
+                  srv.nro_reserva, 1, periodoId, 1, 1,
+                  srv.fecha_servicio, srv.hora_servicio || '00:00:00', srv.categoria_vehiculo || 'Auto Std',
+                  srv.origen || 'A definir', srv.destino || 'A definir', srv.vuelo_observacion || subject,
+                  srv.subtotal || 0, srv.monto_espera || 0, srv.monto_adicionales || 0, srv.total || 0,
+                  'Pendiente', `Importado desde Gmail [MAAVYT]. Asunto: ${subject}`
                 ]
               );
 
@@ -185,14 +241,8 @@ async function performSync(user, password, targetFolder) {
               }
 
               await dbConnection.commit();
-
-              totalVouchersImported++;
-              importedDetails.push({
-                id: srvId,
-                nro_reserva: srv.nro_reserva,
-                fecha_servicio: srv.fecha_servicio,
-                subject
-              });
+              vouchersImported++;
+              importedDetails.push({ id: srvId, nro_reserva: srv.nro_reserva, fecha_servicio: srv.fecha_servicio });
             }
           } catch (dbErr) {
             await dbConnection.rollback();
@@ -208,9 +258,11 @@ async function performSync(user, password, targetFolder) {
 
     return {
       success: true,
-      message: `Sincronización completada. Se evaluaron ${messages.length} correo(s) y se importaron ${totalVouchersImported} nueva(s) reserva(s).`,
+      message: `Sincronización completada (${modo}). Evaluados: ${messages.length} correos. Nuevos: ${vouchersImported}, Modificados: ${modificationsUpdated}, Cancelados: ${cancellationsUpdated}.`,
       emails_processed: messages.length,
-      vouchers_imported: totalVouchersImported,
+      vouchers_imported: vouchersImported,
+      cancellations_updated: cancellationsUpdated,
+      modifications_updated: modificationsUpdated,
       data: importedDetails
     };
   } catch (error) {
