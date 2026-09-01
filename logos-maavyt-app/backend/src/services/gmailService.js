@@ -5,7 +5,7 @@ const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
- * Conecta a Gmail vía IMAP y procesa los correos de vouchers no leídos (UNSEEN) con timeout de seguridad
+ * Conecta a Gmail vía IMAP y procesa correos de vouchers (unseen o recientes) con prevención de duplicados
  */
 async function syncGmailVouchers() {
   const user = process.env.GMAIL_USER;
@@ -20,16 +20,16 @@ async function syncGmailVouchers() {
     };
   }
 
-  // Wrapper con timeout de 15 segundos para evitar colgar la petición HTTP
+  // Wrapper con timeout de 20 segundos
   const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con el servidor IMAP de Gmail')), 15000)
+    setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con Gmail IMAP')), 20000)
   );
 
   return Promise.race([
     performSync(user, password),
     timeoutPromise
   ]).catch(err => {
-    console.error('[Gmail Service] Error o Timeout:', err.message);
+    console.error('[Gmail Service] Error:', err.message);
     return {
       success: false,
       message: err.message,
@@ -48,7 +48,7 @@ async function performSync(user, password) {
       port: 993,
       tls: true,
       tlsOptions: { rejectUnauthorized: false },
-      authTimeout: 8000
+      authTimeout: 10000
     }
   };
 
@@ -58,15 +58,18 @@ async function performSync(user, password) {
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
-    // Buscar correos no leídos
-    const searchCriteria = ['UNSEEN'];
-    const fetchOptions = {
-      bodies: [''],
-      markSeen: true
-    };
+    // Buscar tanto no leídos como leídos recientes que contengan palabras clave de reservas
+    // Estrategia 1: Buscar no leídos (UNSEEN)
+    let messages = await connection.search(['UNSEEN'], { bodies: [''], markSeen: true });
 
-    const messages = await connection.search(searchCriteria, fetchOptions);
-    console.log(`[Gmail Service] Mensajes no leídos encontrados: ${messages.length}`);
+    // Estrategia 2: Si no hay no leídos, o para no perder leídos recientes, buscar los últimos 30 correos de la bandeja
+    if (messages.length === 0) {
+      console.log('[Gmail Service] No hay mails UNSEEN. Buscando en los últimos correos recibidos...');
+      const allMessages = await connection.search(['ALL'], { bodies: [''], markSeen: false });
+      messages = allMessages.slice(-30); // Tomar los últimos 30 correos
+    }
+
+    console.log(`[Gmail Service] Total de correos a evaluar: ${messages.length}`);
 
     let totalVouchersImported = 0;
     const importedDetails = [];
@@ -79,17 +82,66 @@ async function performSync(user, password) {
         const subject = parsedEmail.subject || '';
         const textBody = parsedEmail.text || parsedEmail.html || '';
 
-        console.log(`[Gmail Service] Procesando correo: "${subject}"`);
+        // Filtrar si el asunto o cuerpo parece un voucher/reserva de transporte
+        const isVoucherCandidate = /VOUCHER|RESERVA|SOLICITUD|TRASLADO|LOGOS|MAAVYT|PAX|VUELO/i.test(`${subject} ${textBody}`);
+
+        if (!isVoucherCandidate) {
+          continue;
+        }
+
+        console.log(`[Gmail Service] Evaluando correo: "${subject}"`);
 
         // Extraer servicios usando textParserService
         const parsedServices = parseVoucherText(textBody);
 
         if (parsedServices.length > 0) {
           const dbConnection = await pool.getConnection();
-          await dbConnection.beginTransaction();
 
           try {
             for (const srv of parsedServices) {
+              // Verificación de duplicados en MySQL (evitar insertar la misma reserva dos veces)
+              const [existing] = await dbConnection.execute(
+                `SELECT id FROM servicios WHERE nro_reserva = ? AND fecha_servicio = ?`,
+                [srv.nro_reserva || 'S/N', srv.fecha_servicio]
+              );
+
+              if (existing.length > 0) {
+                console.log(`[Gmail Service] Reserva ${srv.nro_reserva} ya existe en DB. Omitiendo duplicado.`);
+                continue;
+              }
+
+              await dbConnection.beginTransaction();
+
+              // Determinar o crear el período de liquidación correspondiente a la fecha del servicio
+              const fechaObj = new Date(srv.fecha_servicio);
+              const anio = fechaObj.getUTCFullYear();
+              const mes = fechaObj.getUTCMonth() + 1;
+              const dia = fechaObj.getUTCDate();
+              const quincena = dia <= 15 ? 1 : 2;
+
+              // Obtener o crear período en periodos_liquidacion
+              let periodoId = 1;
+              const [periodos] = await dbConnection.execute(
+                `SELECT id FROM periodos_liquidacion WHERE anio = ? AND mes = ? AND quincena = ?`,
+                [anio, mes, quincena]
+              );
+
+              if (periodos.length > 0) {
+                periodoId = periodos[0].id;
+              } else {
+                const fInicio = `${anio}-${String(mes).padStart(2, '0')}-${quincena === 1 ? '01' : '16'}`;
+                const lastDay = new Date(anio, mes, 0).getDate();
+                const fFin = `${anio}-${String(mes).padStart(2, '0')}-${quincena === 1 ? '15' : lastDay}`;
+
+                const [pRes] = await dbConnection.execute(
+                  `INSERT INTO periodos_liquidacion (anio, mes, quincena, fecha_inicio, fecha_fin)
+                   VALUES (?, ?, ?, ?, ?)`,
+                  [anio, mes, quincena, fInicio, fFin]
+                );
+                periodoId = pRes.insertId;
+              }
+
+              // Insertar Servicio
               const [res] = await dbConnection.execute(
                 `INSERT INTO servicios (
                   nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
@@ -100,7 +152,7 @@ async function performSync(user, password) {
                 [
                   srv.nro_reserva || 'S/N',
                   1, // Logos Travel
-                  1,
+                  periodoId,
                   1,
                   1,
                   srv.fecha_servicio,
@@ -130,14 +182,19 @@ async function performSync(user, password) {
                 }
               }
 
-              totalVouchersImported++;
-              importedDetails.push({ id: srvId, nro_reserva: srv.nro_reserva, subject });
-            }
+              await dbConnection.commit();
 
-            await dbConnection.commit();
+              totalVouchersImported++;
+              importedDetails.push({
+                id: srvId,
+                nro_reserva: srv.nro_reserva,
+                fecha_servicio: srv.fecha_servicio,
+                subject
+              });
+            }
           } catch (dbErr) {
             await dbConnection.rollback();
-            console.error('[Gmail Service] Error al guardar reservas en DB:', dbErr);
+            console.error('[Gmail Service] Error al guardar en DB:', dbErr);
           } finally {
             dbConnection.release();
           }
@@ -149,7 +206,7 @@ async function performSync(user, password) {
 
     return {
       success: true,
-      message: `Sincronización completada. Se leyeron ${messages.length} correo(s) y se importaron ${totalVouchersImported} reserva(s).`,
+      message: `Sincronización completada. Se evaluaron ${messages.length} correo(s) y se importaron ${totalVouchersImported} nueva(s) reserva(s).`,
       emails_processed: messages.length,
       vouchers_imported: totalVouchersImported,
       data: importedDetails
