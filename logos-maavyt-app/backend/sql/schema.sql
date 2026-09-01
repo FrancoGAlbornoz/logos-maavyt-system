@@ -1,5 +1,6 @@
 -- ==========================================================
 -- Base de Datos: maavyt_db
+-- Cumplimiento de Normalización: 1FN, 2FN y 3FN
 -- Motor: MySQL 8.0+
 -- ==========================================================
 
@@ -10,7 +11,7 @@ COLLATE utf8mb4_unicode_ci;
 USE maavyt_db;
 
 -- ----------------------------------------------------------
--- 1. Tabla de Clientes / Agencias
+-- 1. Tabla de Clientes / Agencias (1FN, 2FN, 3FN)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clientes (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -25,7 +26,7 @@ CREATE TABLE IF NOT EXISTS clientes (
 ) ENGINE=InnoDB;
 
 -- ----------------------------------------------------------
--- 2. Tabla de Conductores
+-- 2. Tabla de Conductores (1FN, 2FN, 3FN)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS conductores (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS conductores (
 ) ENGINE=InnoDB;
 
 -- ----------------------------------------------------------
--- 3. Tabla de Vehículos / Unidades
+-- 3. Tabla de Vehículos / Unidades (1FN, 2FN, 3FN)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS vehiculos (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -57,7 +58,7 @@ CREATE TABLE IF NOT EXISTS vehiculos (
 ) ENGINE=InnoDB;
 
 -- ----------------------------------------------------------
--- 4. Períodos de Liquidación (Quincenas / Meses)
+-- 4. Períodos de Liquidación Quincenales (1FN, 2FN, 3FN)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS periodos_liquidacion (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -74,48 +75,50 @@ CREATE TABLE IF NOT EXISTS periodos_liquidacion (
 ) ENGINE=InnoDB;
 
 -- ----------------------------------------------------------
--- 5. Tabla Principal de Servicios / Traslados
+-- 5. Tabla Principal de Servicios / Traslados (1FN, 2FN, 3FN + Soft Delete)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS servicios (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    nro_reserva VARCHAR(50) NOT NULL, -- Ej: '229498', '227777-A', 'S/N'
+    nro_reserva VARCHAR(50) NOT NULL,
     cliente_id INT NULL,
     periodo_id INT NULL,
     conductor_id INT NULL,
     vehiculo_id INT NULL,
     
-    -- Tiempos y Fechas
+    -- Tiempos y Fechas Atómicas (1FN)
     fecha_servicio DATE NOT NULL,
     hora_servicio TIME NOT NULL,
     
-    -- Configuración del Viaje
+    -- Atributos del Viaje
     categoria_vehiculo ENUM('Auto Std', 'Auto', 'Ejecutivo', 'Van', 'Minibus') NOT NULL DEFAULT 'Auto Std',
     origen VARCHAR(255) NOT NULL,
     destino VARCHAR(255) NOT NULL,
-    vuelo_observacion VARCHAR(255) NULL, -- Ej: 'AR 1476', 'CM 745', 'SALE 09:30', 'CARTEL PFIZER'
+    vuelo_observacion VARCHAR(255) NULL,
     
     -- Estados Operativos
     estado_servicio ENUM('Pendiente', 'Confirmado', 'Realizado', 'No Show', 'Cancelado') DEFAULT 'Confirmado',
     
-    -- Aspectos Financieros y Tiempos de Espera
+    -- Aspectos Financieros
     subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     minutos_espera INT DEFAULT 0,
-    detalle_espera VARCHAR(100) NULL, -- Ej: '25 min espera', '1 hora espera'
+    detalle_espera VARCHAR(100) NULL,
     monto_espera DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-    monto_adicionales DECIMAL(12,2) NOT NULL DEFAULT 0.00, -- Peajes, desvíos, etc.
+    monto_adicionales DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     
-    -- Estado de Conciliación
+    -- Estado de Conciliación y Borrado Lógico (Soft Delete)
     liquidado BOOLEAN DEFAULT FALSE,
     observaciones_internas TEXT NULL,
+    deleted_at DATETIME NULL DEFAULT NULL,
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    -- Índices para búsqueda rápida
+    -- Índices
     INDEX idx_fecha_servicio (fecha_servicio),
     INDEX idx_nro_reserva (nro_reserva),
     INDEX idx_estado_servicio (estado_servicio),
+    INDEX idx_deleted_at (deleted_at),
     
     FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE SET NULL,
     FOREIGN KEY (periodo_id) REFERENCES periodos_liquidacion(id) ON DELETE SET NULL,
@@ -124,27 +127,27 @@ CREATE TABLE IF NOT EXISTS servicios (
 ) ENGINE=InnoDB;
 
 -- ----------------------------------------------------------
--- 6. Tabla de Pasajeros por Servicio
+-- 6. Tabla de Pasajeros por Servicio (Normalización 1FN: Sin listas en celdas)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pasajeros (
     id INT AUTO_INCREMENT PRIMARY KEY,
     servicio_id INT NOT NULL,
     nombre_completo VARCHAR(200) NOT NULL,
-    documento_o_referencia VARCHAR(50) NULL, -- Ej: '48704300' o DNI
+    documento_o_referencia VARCHAR(50) NULL,
     telefono VARCHAR(50) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (servicio_id) REFERENCES servicios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- ----------------------------------------------------------
--- 7. Tarifario de Referencia (Base para sugerir importes)
+-- 7. Tarifario de Referencia (3FN)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tarifario (
     id INT AUTO_INCREMENT PRIMARY KEY,
     cliente_id INT NULL,
     categoria_vehiculo ENUM('Auto Std', 'Auto', 'Ejecutivo', 'Van', 'Minibus') NOT NULL DEFAULT 'Auto Std',
-    origen_zona VARCHAR(100) NOT NULL, -- Ej: 'TUC ARPT', 'TUC CENTRO'
-    destino_zona VARCHAR(100) NOT NULL, -- Ej: 'YERBA BUENA', 'SDE CENTRO'
+    origen_zona VARCHAR(100) NOT NULL,
+    destino_zona VARCHAR(100) NOT NULL,
     tarifa_base DECIMAL(12,2) NOT NULL,
     tarifa_hora_espera DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     activo BOOLEAN DEFAULT TRUE,
@@ -153,7 +156,7 @@ CREATE TABLE IF NOT EXISTS tarifario (
 ) ENGINE=InnoDB;
 
 -- ----------------------------------------------------------
--- Vistas Operativas y de Liquidación
+-- Vistas Operativas (Excluyen servicios borrados lógicamente por defecto)
 -- ----------------------------------------------------------
 
 CREATE OR REPLACE VIEW vista_hoja_de_ruta AS
@@ -182,6 +185,7 @@ FROM servicios s
 LEFT JOIN pasajeros p ON s.id = p.servicio_id
 LEFT JOIN conductores c ON s.conductor_id = c.id
 LEFT JOIN vehiculos v ON s.vehiculo_id = v.id
+WHERE s.deleted_at IS NULL
 GROUP BY s.id
 ORDER BY s.fecha_servicio ASC, s.hora_servicio ASC;
 
@@ -191,11 +195,11 @@ CREATE OR REPLACE VIEW vista_liquidacion_quincenal AS
 SELECT 
     pl.id AS periodo_id,
     CONCAT(pl.anio, '-', LPAD(pl.mes, 2, '0'), ' Q', pl.quincena) AS periodo_nombre,
-    COUNT(s.id) AS total_servicios,
-    SUM(CASE WHEN s.estado_servicio != 'Cancelado' THEN s.subtotal ELSE 0 END) AS total_subtotal,
-    SUM(CASE WHEN s.estado_servicio != 'Cancelado' THEN s.monto_espera ELSE 0 END) AS total_esperas,
-    SUM(CASE WHEN s.estado_servicio != 'Cancelado' THEN s.monto_adicionales ELSE 0 END) AS total_adicionales,
-    SUM(CASE WHEN s.estado_servicio != 'Cancelado' THEN s.total ELSE 0 END) AS total_general
+    COUNT(CASE WHEN s.deleted_at IS NULL THEN s.id END) AS total_servicios,
+    SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.subtotal ELSE 0 END) AS total_subtotal,
+    SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.monto_espera ELSE 0 END) AS total_esperas,
+    SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.monto_adicionales ELSE 0 END) AS total_adicionales,
+    SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.total ELSE 0 END) AS total_general
 FROM periodos_liquidacion pl
 LEFT JOIN servicios s ON pl.id = s.periodo_id
 GROUP BY pl.id
@@ -205,35 +209,14 @@ ORDER BY pl.anio DESC, pl.mes DESC, pl.quincena DESC;
 -- Datos Semilla (Seeds)
 -- ---------------------------------------------------------------
 
--- Cliente por defecto
 INSERT IGNORE INTO clientes (id, nombre, contacto_nombre) 
 VALUES (1, 'Logos Travel', 'Operaciones');
 
--- Conductor y Vehículo
 INSERT IGNORE INTO conductores (id, nombre, apellido) 
 VALUES (1, 'Miguel Ángel', 'Albornoz');
 
 INSERT IGNORE INTO vehiculos (id, conductor_id, numero_unidad, patente, categoria) 
 VALUES (1, 1, '430', 'AF123ZZ', 'Auto Std');
 
--- Período de prueba: 2da Quincena Agosto 2026
 INSERT IGNORE INTO periodos_liquidacion (id, anio, mes, quincena, fecha_inicio, fecha_fin) 
-VALUES (1, 2026, 8, 2, '2026-08-16', '2026-08-31');
-
--- Ejemplo de Servicio
-INSERT IGNORE INTO servicios (
-    id, nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
-    fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
-    vuelo_observacion, subtotal, monto_espera, total, estado_servicio
-) VALUES (
-    1, '230309', 1, 1, 1, 1,
-    '2026-08-18', '14:50:00', 'Auto Std',
-    'TUC , (TUC) ARPT, Aeropuerto Internacional Teniente Benjamin Matienzo',
-    'TUC , CENTRO, Miguel Lillo 365, Hilton Garden Inn Tucuman',
-    'AR 1476', 25417.00, 4000.00, 29417.00, 'Realizado'
-);
-
--- Pasajeros del servicio
-INSERT IGNORE INTO pasajeros (id, servicio_id, nombre_completo) VALUES 
-(1, 1, 'TORRES, DIEGO'),
-(2, 1, 'CALCATERRA, PABLO');
+VALUES (1, 2026, 9, 1, '2026-09-01', '2026-09-15');

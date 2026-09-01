@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { fetchApi } from '../api/axiosInstance';
-import { Search, Filter, Plus, Edit2, Trash2, CheckCircle, Clock, XCircle, AlertTriangle, Calendar } from 'lucide-react';
+import { Search, Filter, Plus, Edit2, Trash2, CheckCircle, Clock, XCircle, AlertTriangle, Calendar, Archive, RotateCcw, ShieldAlert } from 'lucide-react';
 
 export default function ServiciosPage() {
   const [servicios, setServicios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [estadoFilter, setEstadoFilter] = useState('');
-  const [fechaDesde, setFechaDesde] = useState('2026-09-01'); // Por defecto desde 01/09/2026 en adelante
+  const [fechaDesde, setFechaDesde] = useState('2026-09-01');
   const [fechaHasta, setFechaHasta] = useState('');
-  const [quickFilter, setQuickFilter] = useState('septiembre'); // 'septiembre' | 'proximos3' | 'todos'
+  const [quickFilter, setQuickFilter] = useState('septiembre');
+  const [viewArchived, setViewArchived] = useState(false); // Estado para alternar vistas
 
   const [editingService, setEditingService] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -17,35 +18,27 @@ export default function ServiciosPage() {
   const loadServicios = async () => {
     setLoading(true);
     try {
+      const endpoint = viewArchived ? '/servicios/archivados' : '/servicios';
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (estadoFilter) params.append('estado', estadoFilter);
 
-      // Aplicar filtros de fecha según preset o selección
-      if (quickFilter === 'septiembre') {
-        params.append('fecha_desde', '2026-09-01');
-      } else if (quickFilter === 'proximos3') {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        const todayStr = `${yyyy}-${mm}-${dd}`;
-
-        const limitDate = new Date();
-        limitDate.setDate(today.getDate() + 3);
-        const lYyyy = limitDate.getFullYear();
-        const lMm = String(limitDate.getMonth() + 1).padStart(2, '0');
-        const lDd = String(limitDate.getDate()).padStart(2, '0');
-        const limitStr = `${lYyyy}-${lMm}-${lDd}`;
-
-        params.append('fecha_desde', '2026-09-01'); // Desde septiembre en adelante
-        params.append('fecha_hasta', limitStr);
-      } else if (quickFilter === 'custom') {
-        if (fechaDesde) params.append('fecha_desde', fechaDesde);
-        if (fechaHasta) params.append('fecha_hasta', fechaHasta);
+      if (!viewArchived) {
+        if (quickFilter === 'septiembre') {
+          params.append('fecha_desde', '2026-09-01');
+        } else if (quickFilter === 'proximos3') {
+          const limitDate = new Date();
+          limitDate.setDate(limitDate.getDate() + 3);
+          const limitStr = limitDate.toISOString().split('T')[0];
+          params.append('fecha_desde', '2026-09-01');
+          params.append('fecha_hasta', limitStr);
+        } else if (quickFilter === 'custom') {
+          if (fechaDesde) params.append('fecha_desde', fechaDesde);
+          if (fechaHasta) params.append('fecha_hasta', fechaHasta);
+        }
       }
 
-      const res = await fetchApi(`/servicios?${params.toString()}`);
+      const res = await fetchApi(`${endpoint}?${params.toString()}`);
       setServicios(res.data || []);
     } catch (err) {
       console.error('Error al cargar servicios:', err);
@@ -56,7 +49,7 @@ export default function ServiciosPage() {
 
   useEffect(() => {
     loadServicios();
-  }, [search, estadoFilter, quickFilter, fechaDesde, fechaHasta]);
+  }, [search, estadoFilter, quickFilter, fechaDesde, fechaHasta, viewArchived]);
 
   const handleStatusChange = async (id, newStatus) => {
     try {
@@ -70,13 +63,35 @@ export default function ServiciosPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('¿Está seguro de eliminar este servicio?')) return;
+  // Borrado Lógico (Archivar)
+  const handleArchive = async (id) => {
+    if (!window.confirm('¿Desea archivar este servicio (borrado lógico)? Podrá restaurarlo cuando lo necesite.')) return;
     try {
       await fetchApi(`/servicios/${id}`, { method: 'DELETE' });
       loadServicios();
     } catch (err) {
-      alert('Error al eliminar el servicio');
+      alert('Error al archivar el servicio');
+    }
+  };
+
+  // Restaurar Servicio
+  const handleRestore = async (id) => {
+    try {
+      await fetchApi(`/servicios/${id}/restaurar`, { method: 'PATCH' });
+      loadServicios();
+    } catch (err) {
+      alert('Error al restaurar el servicio');
+    }
+  };
+
+  // Purga Definitiva (Física)
+  const handlePurge = async (id) => {
+    if (!window.confirm('¡ATENCIÓN! ¿Está seguro de eliminar PERMANENTEMENTE este servicio? Esta acción no se puede deshacer.')) return;
+    try {
+      await fetchApi(`/servicios/${id}/purgar`, { method: 'DELETE' });
+      loadServicios();
+    } catch (err) {
+      alert('Error al purgar el servicio');
     }
   };
 
@@ -154,19 +169,42 @@ export default function ServiciosPage() {
       {/* Header */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Servicios Operativos Vigentes</h2>
-          <p className="text-slate-500 text-sm">Mostrando servicios desde el <b>01/09/2026 en adelante</b>. ({servicios.length} traslados vigentes)</p>
+          <h2 className="text-xl font-bold text-slate-800">
+            {viewArchived ? 'Papelera / Servicios Archivados' : 'Servicios Operativos Vigentes'}
+          </h2>
+          <p className="text-slate-500 text-sm">
+            {viewArchived 
+              ? 'Lista de traslados eliminados lógicamente. Puedes restaurarlos o eliminarlos definitivamente.'
+              : `Mostrando servicios vigentes (${servicios.length} traslados).`}
+          </p>
         </div>
 
-        <button
-          onClick={openNewModal}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-all shadow-sm self-start md:self-auto"
-        >
-          <Plus className="w-4 h-4" /> Nuevo Traslado Manual
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Toggle Ver Archivados */}
+          <button
+            onClick={() => setViewArchived(!viewArchived)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border transition-all ${
+              viewArchived
+                ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+            }`}
+          >
+            <Archive className="w-4 h-4" />
+            {viewArchived ? 'Ver Activos' : 'Ver Archivados (Papelera)'}
+          </button>
+
+          {!viewArchived && (
+            <button
+              onClick={openNewModal}
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-all shadow-sm"
+            >
+              <Plus className="w-4 h-4" /> Nuevo Traslado Manual
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Barra de Búsqueda y Filtros Rápidos */}
+      {/* Barra de Búsqueda y Filtros */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
           <div className="relative flex-1">
@@ -198,54 +236,58 @@ export default function ServiciosPage() {
         </div>
 
         {/* Botones de Presets de Fecha */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <Calendar className="w-3.5 h-3.5 text-blue-600" /> Rango Operativo:
+        {!viewArchived && (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+              <Calendar className="w-3.5 h-3.5 text-blue-600" /> Rango Operativo:
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setQuickFilter('septiembre')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  quickFilter === 'septiembre'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                🗓️ Desde 01/09/2026 en adelante
+              </button>
+
+              <button
+                onClick={() => setQuickFilter('proximos3')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  quickFilter === 'proximos3'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                ⚡ Próximos 3 Días
+              </button>
+
+              <button
+                onClick={() => setQuickFilter('todos')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  quickFilter === 'todos'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                🌐 Todos (Sin Filtro de Fecha)
+              </button>
+            </div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setQuickFilter('septiembre')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                quickFilter === 'septiembre'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              🗓️ Desde 01/09/2026 en adelante (Predeterminado)
-            </button>
-
-            <button
-              onClick={() => setQuickFilter('proximos3')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                quickFilter === 'proximos3'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              ⚡ Próximos 3 Días
-            </button>
-
-            <button
-              onClick={() => setQuickFilter('todos')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                quickFilter === 'todos'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              🌐 Todos (Sin Filtro de Fecha)
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Tabla de Servicios */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-slate-500 text-sm">Cargando servicios operativos...</div>
+          <div className="p-8 text-center text-slate-500 text-sm">Cargando servicios...</div>
         ) : servicios.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-sm">No se encontraron servicios vigentes para el rango seleccionado.</div>
+          <div className="p-8 text-center text-slate-500 text-sm">
+            {viewArchived ? 'No hay servicios archivados en la papelera.' : 'No se encontraron servicios vigentes.'}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm border-collapse">
@@ -263,7 +305,7 @@ export default function ServiciosPage() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {servicios.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={s.id} className={`hover:bg-slate-50/80 transition-colors ${viewArchived ? 'bg-rose-50/20' : ''}`}>
                     <td className="p-3 whitespace-nowrap">
                       <div className="font-semibold text-slate-800">{new Date(s.fecha_servicio).toLocaleDateString('es-AR')}</div>
                       <div className="text-xs text-slate-500">{s.hora_servicio?.substring(0, 5)} hs</div>
@@ -289,31 +331,52 @@ export default function ServiciosPage() {
                     </td>
                     <td className="p-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center space-x-2">
-                        <select
-                          className="text-xs p-1 border border-slate-300 rounded bg-white"
-                          value={s.estado_servicio}
-                          onChange={(e) => handleStatusChange(s.id, e.target.value)}
-                        >
-                          <option value="Confirmado">Confirmado</option>
-                          <option value="Realizado">Realizado</option>
-                          <option value="Pendiente">Pendiente</option>
-                          <option value="No Show">No Show</option>
-                          <option value="Cancelado">Cancelado</option>
-                        </select>
-                        <button
-                          onClick={() => openEditModal(s)}
-                          className="p-1 text-slate-500 hover:text-blue-600"
-                          title="Editar"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(s.id)}
-                          className="p-1 text-slate-500 hover:text-rose-600"
-                          title="Eliminar"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {!viewArchived ? (
+                          <>
+                            <select
+                              className="text-xs p-1 border border-slate-300 rounded bg-white"
+                              value={s.estado_servicio}
+                              onChange={(e) => handleStatusChange(s.id, e.target.value)}
+                            >
+                              <option value="Confirmado">Confirmado</option>
+                              <option value="Realizado">Realizado</option>
+                              <option value="Pendiente">Pendiente</option>
+                              <option value="No Show">No Show</option>
+                              <option value="Cancelado">Cancelado</option>
+                            </select>
+                            <button
+                              onClick={() => openEditModal(s)}
+                              className="p-1 text-slate-500 hover:text-blue-600"
+                              title="Editar"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleArchive(s.id)}
+                              className="p-1 text-slate-500 hover:text-amber-600"
+                              title="Archivar (Borrado Lógico)"
+                            >
+                              <Archive className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleRestore(s.id)}
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold flex items-center gap-1"
+                              title="Restaurar Servicio"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+                            </button>
+                            <button
+                              onClick={() => handlePurge(s.id)}
+                              className="p-1 text-rose-500 hover:text-rose-700"
+                              title="Eliminar Definitivamente (Purga)"
+                            >
+                              <ShieldAlert className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -1,11 +1,11 @@
 const { pool } = require('../config/database');
 
 /**
- * Listar servicios con filtros por fecha, período, conductor, estado y búsqueda
+ * Listar servicios activos (por defecto omite borrados lógicos)
  */
 async function getServicios(req, res, next) {
   try {
-    const { fecha_desde, fecha_hasta, periodo_id, conductor_id, estado, search } = req.query;
+    const { fecha_desde, fecha_hasta, periodo_id, conductor_id, estado, search, include_deleted, only_deleted } = req.query;
 
     let query = `
       SELECT 
@@ -13,7 +13,7 @@ async function getServicios(req, res, next) {
         s.fecha_servicio, s.hora_servicio, s.categoria_vehiculo, s.origen, s.destino,
         s.vuelo_observacion, s.estado_servicio, s.subtotal, s.minutos_espera,
         s.detalle_espera, s.monto_espera, s.monto_adicionales, s.total, s.liquidado,
-        s.observaciones_internas, s.created_at,
+        s.observaciones_internas, s.deleted_at, s.created_at,
         c.nombre AS cliente_nombre,
         cond.nombre AS conductor_nombre, cond.apellido AS conductor_apellido,
         v.numero_unidad, v.patente,
@@ -34,6 +34,13 @@ async function getServicios(req, res, next) {
     `;
 
     const params = [];
+
+    // Manejo de Soft Delete
+    if (only_deleted === 'true') {
+      query += ` AND s.deleted_at IS NOT NULL`;
+    } else if (include_deleted !== 'true') {
+      query += ` AND s.deleted_at IS NULL`;
+    }
 
     if (fecha_desde) {
       query += ` AND s.fecha_servicio >= ?`;
@@ -73,6 +80,14 @@ async function getServicios(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+
+/**
+ * Obtener listado exclusivo de servicios archivados / borrados lógicamente
+ */
+async function getArchivados(req, res, next) {
+  req.query.only_deleted = 'true';
+  return getServicios(req, res, next);
 }
 
 /**
@@ -155,7 +170,7 @@ async function createServicio(req, res, next) {
 }
 
 /**
- * Actualizar servicio existente y reemplazar sus pasajeros
+ * Actualizar servicio existente
  */
 async function updateServicio(req, res, next) {
   let connection;
@@ -186,7 +201,6 @@ async function updateServicio(req, res, next) {
       ]
     );
 
-    // Reemplazar pasajeros
     if (Array.isArray(pasajeros)) {
       await connection.execute(`DELETE FROM pasajeros WHERE servicio_id = ?`, [id]);
       for (const pax of pasajeros) {
@@ -212,7 +226,7 @@ async function updateServicio(req, res, next) {
 }
 
 /**
- * Actualizar sólo el estado de un servicio
+ * Actualizar estado operativo
  */
 async function updateEstadoServicio(req, res, next) {
   try {
@@ -228,14 +242,42 @@ async function updateEstadoServicio(req, res, next) {
 }
 
 /**
- * Eliminar servicio por ID
+ * Borrado Lógico (Soft Delete / Archivar)
  */
-async function deleteServicio(req, res, next) {
+async function archiveServicio(req, res, next) {
+  try {
+    const { id } = req.params;
+    await pool.execute(`UPDATE servicios SET deleted_at = NOW() WHERE id = ?`, [id]);
+
+    res.json({ success: true, message: 'Servicio archivado (borrado lógico) exitosamente.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Restaurar Servicio Archivado
+ */
+async function restoreServicio(req, res, next) {
+  try {
+    const { id } = req.params;
+    await pool.execute(`UPDATE servicios SET deleted_at = NULL WHERE id = ?`, [id]);
+
+    res.json({ success: true, message: 'Servicio restaurado exitosamente.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Borrado Físico Definitivo (Purge)
+ */
+async function purgeServicio(req, res, next) {
   try {
     const { id } = req.params;
     await pool.execute(`DELETE FROM servicios WHERE id = ?`, [id]);
 
-    res.json({ success: true, message: 'Servicio eliminado correctamente.' });
+    res.json({ success: true, message: 'Servicio eliminado permanentemente de la base de datos.' });
   } catch (error) {
     next(error);
   }
@@ -243,9 +285,12 @@ async function deleteServicio(req, res, next) {
 
 module.exports = {
   getServicios,
+  getArchivados,
   getServicioById,
   createServicio,
   updateServicio,
   updateEstadoServicio,
-  deleteServicio
+  archiveServicio,
+  restoreServicio,
+  purgeServicio
 };
