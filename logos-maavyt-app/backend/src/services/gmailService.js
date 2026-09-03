@@ -45,7 +45,7 @@ async function syncGmailVouchers(options = {}) {
 }
 
 async function performSync(user, password, targetFolder, options = {}) {
-  const { modo = 'cierre_quincenal', fecha_desde, fecha_hasta } = options;
+  const { modo = 'operativo', fecha_desde, fecha_hasta } = options;
 
   const today = new Date();
   let minDate = fecha_desde ? new Date(fecha_desde) : new Date(today.getFullYear(), today.getMonth(), 1);

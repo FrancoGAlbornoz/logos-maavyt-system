@@ -1,13 +1,14 @@
 const { pool } = require('../config/database');
 const { generateHojaDeRutaPDF } = require('../services/pdfGeneratorService');
-const { generateLiquidacionExcel } = require('../services/excelGeneratorService');
+const { generateLiquidacionExcel, generateServiciosOperativosExcel } = require('../services/excelGeneratorService');
 
 /**
- * Descargar Hoja de Ruta Operativa en PDF A4 Horizontal
+ * Generar y enviar Hoja de Ruta / Servicios Operativos en PDF A4 Horizontal
+ * Respeta los filtros activos (fecha_desde, fecha_hasta, search, estado, range_label)
  */
-async function getHojaDeRutaPDF(req, res, next) {
+async function getServiciosOperativosPDF(req, res, next) {
   try {
-    const { periodo_id, fecha_desde, fecha_hasta, conductor_id } = req.query;
+    const { fecha_desde, fecha_hasta, search, estado, range_label } = req.query;
 
     let query = `
       SELECT 
@@ -23,15 +24,11 @@ async function getHojaDeRutaPDF(req, res, next) {
         ) AS pasajeros_concatenados
       FROM servicios s
       LEFT JOIN pasajeros p ON s.id = p.servicio_id
-      WHERE s.estado_servicio != 'Cancelado'
+      WHERE s.deleted_at IS NULL
     `;
 
     const params = [];
 
-    if (periodo_id) {
-      query += ` AND s.periodo_id = ?`;
-      params.push(periodo_id);
-    }
     if (fecha_desde) {
       query += ` AND s.fecha_servicio >= ?`;
       params.push(fecha_desde);
@@ -40,9 +37,14 @@ async function getHojaDeRutaPDF(req, res, next) {
       query += ` AND s.fecha_servicio <= ?`;
       params.push(fecha_hasta);
     }
-    if (conductor_id) {
-      query += ` AND s.conductor_id = ?`;
-      params.push(conductor_id);
+    if (estado) {
+      query += ` AND s.estado_servicio = ?`;
+      params.push(estado);
+    }
+    if (search) {
+      query += ` AND (s.nro_reserva LIKE ? OR s.origen LIKE ? OR s.destino LIKE ? OR s.vuelo_observacion LIKE ?)`;
+      const term = `%${search}%`;
+      params.push(term, term, term, term);
     }
 
     query += ` GROUP BY s.id ORDER BY s.fecha_servicio ASC, s.hora_servicio ASC`;
@@ -50,15 +52,85 @@ async function getHojaDeRutaPDF(req, res, next) {
     const [servicios] = await pool.execute(query, params);
 
     const pdfBuffer = await generateHojaDeRutaPDF(servicios, {
-      conductor: 'Miguel Ángel Albornoz (Unidad 430)'
+      rangeLabel: range_label || 'Servicios Operativos'
     });
 
+    const dateStr = new Date().toISOString().split('T')[0];
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="Hoja_de_Ruta_MAAVYT_${new Date().toISOString().split('T')[0]}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="Servicios_Operativos_MAAVYT_${dateStr}.pdf"`);
     res.send(pdfBuffer);
   } catch (error) {
     next(error);
   }
+}
+
+/**
+ * Generar y descargar Planilla de Servicios Operativos en Excel (.xlsx)
+ * Respeta los filtros activos (fecha_desde, fecha_hasta, search, estado, range_label)
+ */
+async function getServiciosOperativosExcel(req, res, next) {
+  try {
+    const { fecha_desde, fecha_hasta, search, estado, range_label } = req.query;
+
+    let query = `
+      SELECT 
+        s.id, s.nro_reserva, s.fecha_servicio, s.hora_servicio, s.categoria_vehiculo,
+        s.origen, s.destino, s.vuelo_observacion, s.detalle_espera, s.estado_servicio,
+        GROUP_CONCAT(
+          CASE 
+            WHEN p.documento_o_referencia IS NOT NULL AND p.documento_o_referencia != '' 
+            THEN CONCAT(p.documento_o_referencia, ' - ', p.nombre_completo)
+            ELSE p.nombre_completo 
+          END 
+          SEPARATOR ' / '
+        ) AS pasajeros_concatenados
+      FROM servicios s
+      LEFT JOIN pasajeros p ON s.id = p.servicio_id
+      WHERE s.deleted_at IS NULL
+    `;
+
+    const params = [];
+
+    if (fecha_desde) {
+      query += ` AND s.fecha_servicio >= ?`;
+      params.push(fecha_desde);
+    }
+    if (fecha_hasta) {
+      query += ` AND s.fecha_servicio <= ?`;
+      params.push(fecha_hasta);
+    }
+    if (estado) {
+      query += ` AND s.estado_servicio = ?`;
+      params.push(estado);
+    }
+    if (search) {
+      query += ` AND (s.nro_reserva LIKE ? OR s.origen LIKE ? OR s.destino LIKE ? OR s.vuelo_observacion LIKE ?)`;
+      const term = `%${search}%`;
+      params.push(term, term, term, term);
+    }
+
+    query += ` GROUP BY s.id ORDER BY s.fecha_servicio ASC, s.hora_servicio ASC`;
+
+    const [servicios] = await pool.execute(query, params);
+
+    const excelBuffer = await generateServiciosOperativosExcel(servicios, {
+      rangeLabel: range_label || 'Servicios Operativos'
+    });
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="Servicios_Operativos_MAAVYT_${dateStr}.xlsx"`);
+    res.send(excelBuffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Descargar Hoja de Ruta Operativa en PDF A4 Horizontal (Ruta heredada)
+ */
+async function getHojaDeRutaPDF(req, res, next) {
+  return getServiciosOperativosPDF(req, res, next);
 }
 
 /**
@@ -112,6 +184,8 @@ async function getLiquidacionExcel(req, res, next) {
 }
 
 module.exports = {
+  getServiciosOperativosPDF,
+  getServiciosOperativosExcel,
   getHojaDeRutaPDF,
   getLiquidacionExcel
 };

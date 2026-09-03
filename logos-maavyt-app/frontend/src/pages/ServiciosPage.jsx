@@ -1,19 +1,108 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { fetchApi } from '../api/axiosInstance';
-import { Search, Filter, Plus, Edit2, Trash2, CheckCircle, Clock, XCircle, AlertTriangle, Calendar, Archive, RotateCcw, ShieldAlert } from 'lucide-react';
+import {
+  Search, Filter, Plus, Edit2, CheckCircle, Clock, XCircle,
+  AlertTriangle, Calendar, Archive, RotateCcw, ShieldAlert, RefreshCw,
+  Printer, FileSpreadsheet
+} from 'lucide-react';
+
+// Helper de formateo seguro para fecha local YYYY-MM-DD
+function getLocalDateStr(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Helper para visualización en tabla DD/MM/AAAA sin desfasaje UTC
+function formatDateDisplay(dateVal) {
+  if (!dateVal) return '-';
+  const str = String(dateVal).substring(0, 10);
+  const parts = str.split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return str;
+}
 
 export default function ServiciosPage() {
   const [servicios, setServicios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [estadoFilter, setEstadoFilter] = useState('');
-  const [fechaDesde, setFechaDesde] = useState('2026-09-01');
-  const [fechaHasta, setFechaHasta] = useState('');
-  const [quickFilter, setQuickFilter] = useState('septiembre');
+  const [quickFilter, setQuickFilter] = useState('proximos3'); // 'proximos3' | 'hoy' | 'semana' | 'mes' | 'custom'
+  const [customFechaDesde, setCustomFechaDesde] = useState(() => getLocalDateStr(new Date()));
+  const [customFechaHasta, setCustomFechaHasta] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    return getLocalDateStr(d);
+  });
   const [viewArchived, setViewArchived] = useState(false); // Estado para alternar vistas
+  const [syncingGmail, setSyncingGmail] = useState(false);
+  const [syncMessage, setSyncMessage] = useState(null);
 
   const [editingService, setEditingService] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Cálculo reactivo de fechas y etiqueta de rango según el filtro activo
+  const { fechaDesdeCalc, fechaHastaCalc, rangeLabel } = useMemo(() => {
+    const today = new Date();
+    const todayStr = getLocalDateStr(today);
+
+    if (quickFilter === 'proximos3') {
+      const end = new Date(today);
+      end.setDate(end.getDate() + 3);
+      const endStr = getLocalDateStr(end);
+      return {
+        fechaDesdeCalc: todayStr,
+        fechaHastaCalc: endStr,
+        rangeLabel: `Próximos 3 días (${formatDateDisplay(todayStr)} al ${formatDateDisplay(endStr)})`
+      };
+    }
+
+    if (quickFilter === 'hoy') {
+      return {
+        fechaDesdeCalc: todayStr,
+        fechaHastaCalc: todayStr,
+        rangeLabel: `Hoy (${formatDateDisplay(todayStr)})`
+      };
+    }
+
+    if (quickFilter === 'semana') {
+      const end = new Date(today);
+      end.setDate(end.getDate() + 7);
+      const endStr = getLocalDateStr(end);
+      return {
+        fechaDesdeCalc: todayStr,
+        fechaHastaCalc: endStr,
+        rangeLabel: `Próximos 7 días (${formatDateDisplay(todayStr)} al ${formatDateDisplay(endStr)})`
+      };
+    }
+
+    if (quickFilter === 'mes') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const firstStr = getLocalDateStr(firstDay);
+      const lastStr = getLocalDateStr(lastDay);
+      const monthName = today.toLocaleString('es-AR', { month: 'long' });
+      const capitalMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+      return {
+        fechaDesdeCalc: firstStr,
+        fechaHastaCalc: lastStr,
+        rangeLabel: `Mes en curso - ${capitalMonth} ${today.getFullYear()} (${formatDateDisplay(firstStr)} al ${formatDateDisplay(lastStr)})`
+      };
+    }
+
+    // 'custom'
+    return {
+      fechaDesdeCalc: customFechaDesde,
+      fechaHastaCalc: customFechaHasta,
+      rangeLabel: `Personalizado (${formatDateDisplay(customFechaDesde)} al ${formatDateDisplay(customFechaHasta)})`
+    };
+  }, [quickFilter, customFechaDesde, customFechaHasta]);
+
+  const currentMonthName = useMemo(() => {
+    const name = new Date().toLocaleString('es-AR', { month: 'long' });
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }, []);
 
   const loadServicios = async () => {
     setLoading(true);
@@ -24,18 +113,8 @@ export default function ServiciosPage() {
       if (estadoFilter) params.append('estado', estadoFilter);
 
       if (!viewArchived) {
-        if (quickFilter === 'septiembre') {
-          params.append('fecha_desde', '2026-09-01');
-        } else if (quickFilter === 'proximos3') {
-          const limitDate = new Date();
-          limitDate.setDate(limitDate.getDate() + 3);
-          const limitStr = limitDate.toISOString().split('T')[0];
-          params.append('fecha_desde', '2026-09-01');
-          params.append('fecha_hasta', limitStr);
-        } else if (quickFilter === 'custom') {
-          if (fechaDesde) params.append('fecha_desde', fechaDesde);
-          if (fechaHasta) params.append('fecha_hasta', fechaHasta);
-        }
+        if (fechaDesdeCalc) params.append('fecha_desde', fechaDesdeCalc);
+        if (fechaHastaCalc) params.append('fecha_hasta', fechaHastaCalc);
       }
 
       const res = await fetchApi(`${endpoint}?${params.toString()}`);
@@ -49,7 +128,60 @@ export default function ServiciosPage() {
 
   useEffect(() => {
     loadServicios();
-  }, [search, estadoFilter, quickFilter, fechaDesde, fechaHasta, viewArchived]);
+  }, [search, estadoFilter, fechaDesdeCalc, fechaHastaCalc, viewArchived]);
+
+  // Sincronización directa desde Gmail
+  const handleSyncGmail = async () => {
+    setSyncingGmail(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetchApi('/gmail/sync', {
+        method: 'POST',
+        body: JSON.stringify({ modo: 'operativo' })
+      });
+
+      if (res.success) {
+        setSyncMessage({
+          type: 'success',
+          text: `Sincronización Gmail completada: ${res.vouchers_imported} nuevos, ${res.modifications_updated || 0} modificados, ${res.cancellations_updated || 0} cancelados.`
+        });
+        await loadServicios();
+      } else {
+        setSyncMessage({ type: 'error', text: res.message || 'No se pudo sincronizar con Gmail.' });
+      }
+    } catch (err) {
+      setSyncMessage({ type: 'error', text: err.message || 'Error de conexión al sincronizar con Gmail.' });
+    } finally {
+      setSyncingGmail(false);
+    }
+  };
+
+  // Exportaciones sincronizadas con los filtros activos
+  const buildExportParams = () => {
+    const params = new URLSearchParams();
+    if (!viewArchived) {
+      if (fechaDesdeCalc) params.append('fecha_desde', fechaDesdeCalc);
+      if (fechaHastaCalc) params.append('fecha_hasta', fechaHastaCalc);
+    }
+    if (search) params.append('search', search);
+    if (estadoFilter) params.append('estado', estadoFilter);
+    params.append('range_label', rangeLabel);
+    return params.toString();
+  };
+
+  const handlePrintPDF = () => {
+    const token = localStorage.getItem('maavyt_token') || '';
+    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
+    const query = buildExportParams();
+    window.open(`${apiBase}/reportes/servicios/pdf?${query}&token=${encodeURIComponent(token)}`, '_blank');
+  };
+
+  const handleExportExcel = () => {
+    const token = localStorage.getItem('maavyt_token') || '';
+    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
+    const query = buildExportParams();
+    window.location.href = `${apiBase}/reportes/servicios/excel?${query}&token=${encodeURIComponent(token)}`;
+  };
 
   const handleStatusChange = async (id, newStatus) => {
     try {
@@ -108,7 +240,7 @@ export default function ServiciosPage() {
   const openNewModal = () => {
     setEditingService({
       nro_reserva: '',
-      fecha_servicio: '2026-09-01',
+      fecha_servicio: getLocalDateStr(new Date()),
       hora_servicio: '12:00',
       categoria_vehiculo: 'Auto Std',
       origen: '',
@@ -164,47 +296,96 @@ export default function ServiciosPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       
-      {/* Header */}
+      {/* Header Principal con Botón Gmail, Exportaciones y Acciones */}
       <div className="bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-slate-800">
             {viewArchived ? 'Papelera / Servicios Archivados' : 'Servicios Operativos Vigentes'}
           </h2>
-          <p className="text-slate-500 text-xs sm:text-sm">
+          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
             {viewArchived 
               ? 'Lista de traslados eliminados lógicamente. Puedes restaurarlos o eliminarlos definitivamente.'
-              : `Mostrando servicios vigentes (${servicios.length} traslados).`}
+              : `Mostrando ${servicios.length} traslados (${rangeLabel}).`}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+          {/* Botón Principal: Sincronizar desde Gmail Ahora */}
+          <button
+            onClick={handleSyncGmail}
+            disabled={syncingGmail}
+            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-bold text-xs sm:text-sm shadow-sm transition-all cursor-pointer"
+            title="Buscar y sincronizar nuevos vouchers, modificaciones y cancelaciones desde Gmail"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncingGmail ? 'animate-spin' : ''}`} />
+            {syncingGmail ? 'Sincronizando...' : 'Sincronizar Gmail'}
+          </button>
+
+          {/* Botón Imprimir / PDF */}
+          <button
+            onClick={handlePrintPDF}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
+            title="Abrir Hoja de Ruta en PDF A4 Horizontal lista para imprimir"
+          >
+            <Printer className="w-4 h-4 text-slate-300" />
+            Imprimir / PDF
+          </button>
+
+          {/* Botón Excel */}
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
+            title="Descargar Planilla de Servicios Operativos en Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+            Excel
+          </button>
+
           {/* Toggle Ver Archivados */}
           <button
             onClick={() => setViewArchived(!viewArchived)}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold border transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold border transition-all cursor-pointer ${
               viewArchived
                 ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
                 : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
             }`}
           >
             <Archive className="w-4 h-4" />
-            {viewArchived ? 'Ver Activos' : 'Ver Archivados (Papelera)'}
+            {viewArchived ? 'Ver Activos' : 'Archivados'}
           </button>
 
           {!viewArchived && (
             <button
               onClick={openNewModal}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> Nuevo Traslado Manual
+              <Plus className="w-4 h-4" /> Nuevo Traslado
             </button>
           )}
         </div>
       </div>
 
-      {/* Barra de Búsqueda y Filtros */}
+      {/* Banner de Resultado de Sincronización */}
+      {syncMessage && (
+        <div className={`p-3.5 rounded-xl flex items-center justify-between text-xs sm:text-sm font-medium ${
+          syncMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+        }`}>
+          <div className="flex items-center gap-2">
+            {syncMessage.type === 'success' ? <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+            <span>{syncMessage.text}</span>
+          </div>
+          <button
+            onClick={() => setSyncMessage(null)}
+            className="text-slate-400 hover:text-slate-700 text-xs px-2 py-0.5 rounded cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Barra de Búsqueda y Filtros Operativos */}
       <div className="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 space-y-2.5">
         <div className="flex flex-col sm:flex-row gap-2.5">
           <div className="relative flex-1">
@@ -221,7 +402,7 @@ export default function ServiciosPage() {
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400 shrink-0" />
             <select
-              className="p-1.5 border border-slate-300 rounded-lg text-xs sm:text-sm bg-white"
+              className="p-1.5 border border-slate-300 rounded-lg text-xs sm:text-sm bg-white cursor-pointer"
               value={estadoFilter}
               onChange={(e) => setEstadoFilter(e.target.value)}
             >
@@ -235,7 +416,7 @@ export default function ServiciosPage() {
           </div>
         </div>
 
-        {/* Botones de Presets de Fecha */}
+        {/* Botones de Presets de Rango Operativo */}
         {!viewArchived && (
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
@@ -244,19 +425,9 @@ export default function ServiciosPage() {
 
             <div className="flex flex-wrap items-center gap-1.5">
               <button
-                onClick={() => setQuickFilter('septiembre')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                  quickFilter === 'septiembre'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                🗓️ Desde 01/09/2026 en adelante
-              </button>
-
-              <button
+                type="button"
                 onClick={() => setQuickFilter('proximos3')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
                   quickFilter === 'proximos3'
                     ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                     : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
@@ -266,15 +437,71 @@ export default function ServiciosPage() {
               </button>
 
               <button
-                onClick={() => setQuickFilter('todos')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                  quickFilter === 'todos'
+                type="button"
+                onClick={() => setQuickFilter('hoy')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                  quickFilter === 'hoy'
                     ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                     : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                 }`}
               >
-                🌐 Todos (Sin Filtro de Fecha)
+                📍 Hoy
               </button>
+
+              <button
+                type="button"
+                onClick={() => setQuickFilter('semana')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                  quickFilter === 'semana'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                📅 Próximos 7 Días
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setQuickFilter('mes')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                  quickFilter === 'mes'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                📊 Mes Actual ({currentMonthName})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setQuickFilter('custom')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                  quickFilter === 'custom'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                🗓️ Personalizado
+              </button>
+
+              {quickFilter === 'custom' && (
+                <div className="flex items-center gap-1.5 ml-1 pl-2 border-l border-slate-300">
+                  <span className="text-[11px] text-slate-500 font-medium">Desde:</span>
+                  <input
+                    type="date"
+                    className="p-1 border border-slate-300 rounded text-xs bg-white text-slate-700"
+                    value={customFechaDesde}
+                    onChange={(e) => setCustomFechaDesde(e.target.value)}
+                  />
+                  <span className="text-[11px] text-slate-500 font-medium">Hasta:</span>
+                  <input
+                    type="date"
+                    className="p-1 border border-slate-300 rounded text-xs bg-white text-slate-700"
+                    value={customFechaHasta}
+                    onChange={(e) => setCustomFechaHasta(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -286,7 +513,7 @@ export default function ServiciosPage() {
           <div className="p-8 text-center text-slate-500 text-sm">Cargando servicios...</div>
         ) : servicios.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">
-            {viewArchived ? 'No hay servicios archivados en la papelera.' : 'No se encontraron servicios vigentes.'}
+            {viewArchived ? 'No hay servicios archivados en la papelera.' : 'No se encontraron servicios vigentes para el filtro seleccionado.'}
           </div>
         ) : (
           <div className="w-full">
@@ -307,7 +534,7 @@ export default function ServiciosPage() {
                 {servicios.map((s) => (
                   <tr key={s.id} className={`hover:bg-slate-50/80 transition-colors ${viewArchived ? 'bg-rose-50/20' : ''}`}>
                     <td className="px-2.5 py-2">
-                      <div className="font-semibold text-slate-800">{new Date(s.fecha_servicio).toLocaleDateString('es-AR')}</div>
+                      <div className="font-semibold text-slate-800">{formatDateDisplay(s.fecha_servicio)}</div>
                       <div className="text-[11px] text-slate-500">{s.hora_servicio?.substring(0, 5)} hs</div>
                     </td>
                     <td className="px-2.5 py-2 font-bold text-blue-900">
@@ -363,14 +590,14 @@ export default function ServiciosPage() {
                           <>
                             <button
                               onClick={() => openEditModal(s)}
-                              className="p-1 text-slate-500 hover:text-blue-600 transition-colors"
+                              className="p-1 text-slate-500 hover:text-blue-600 transition-colors cursor-pointer"
                               title="Editar Servicio"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleArchive(s.id)}
-                              className="p-1 text-slate-500 hover:text-amber-600 transition-colors"
+                              className="p-1 text-slate-500 hover:text-amber-600 transition-colors cursor-pointer"
                               title="Archivar (Borrado Lógico)"
                             >
                               <Archive className="w-4 h-4" />
@@ -380,14 +607,14 @@ export default function ServiciosPage() {
                           <>
                             <button
                               onClick={() => handleRestore(s.id)}
-                              className="p-1 text-emerald-600 hover:text-emerald-800 transition-colors"
+                              className="p-1 text-emerald-600 hover:text-emerald-800 transition-colors cursor-pointer"
                               title="Restaurar Servicio"
                             >
                               <RotateCcw className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handlePurge(s.id)}
-                              className="p-1 text-rose-500 hover:text-rose-700 transition-colors"
+                              className="p-1 text-rose-500 hover:text-rose-700 transition-colors cursor-pointer"
                               title="Eliminar Definitivamente (Purga)"
                             >
                               <ShieldAlert className="w-4 h-4" />
@@ -427,7 +654,7 @@ export default function ServiciosPage() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600">Categoría</label>
                   <select
-                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm"
+                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm cursor-pointer"
                     value={editingService.categoria_vehiculo}
                     onChange={(e) => setEditingService({ ...editingService, categoria_vehiculo: e.target.value })}
                   >
@@ -541,13 +768,13 @@ export default function ServiciosPage() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow-sm"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow-sm cursor-pointer"
                 >
                   Guardar Servicio
                 </button>

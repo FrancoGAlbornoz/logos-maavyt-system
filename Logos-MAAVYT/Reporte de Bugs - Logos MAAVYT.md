@@ -18,6 +18,45 @@
 
 ---
 
+### 🔴 BUG-002: Inconsistencia en Filtros Operativos, Sincronización Gmail y Jerarquía de Vistas
+* **Fecha de Detección**: 03/09/2026
+* **Descripción del Síntoma**:
+  - Al pulsar el filtro "Próximos 3 Días" en Servicios Operativos, la lista no cambiaba ni filtraba los traslados pasados.
+  - Existía un filtro rígido "Desde 01/09/2026" que perdería sentido en meses posteriores, y un botón "Todos" que traía registros antiguos ya facturados de la base de datos.
+  - La pantalla principal abría en Ingesta de Vouchers con 3 opciones de extracción que generaban confusión al terminar redirigiendo siempre a la vista mensual completa.
+* **Causa Raíz**:
+  - `ServiciosPage.jsx` tenía la fecha inicial fija en `'2026-09-01'` dentro de la lógica del preset `proximos3`, abarcando todos los servicios del mes en lugar de contar únicamente a partir de la fecha de hoy.
+  - No existía un cálculo dinámico mes a mes ni selectores visibles para búsquedas personalizadas.
+  - El botón de sincronización de Gmail no estaba en la vista de trabajo operativa diaria.
+* **Acción de Corrección Aplicada**:
+  - **Jerarquía de Pantallas**: Se configuró `Servicios Operativos` como pantalla principal y default de entrada, y la navegación en Navbar ordenada: Servicios Operativos -> Ingesta de Vouchers -> Liquidación & Reportes.
+  - **Sincronización Operativa Directa**: Se integró el botón "Sincronizar desde Gmail Ahora" en la cabecera de Servicios Operativos, con ejecución asíncrona y refresco reactivo de la grilla.
+  - **Reestructuración de Filtros**:
+    - ⚡ **Próximos 3 Días** (activo por defecto): calcula dinámicamente desde `hoy` a `hoy + 3 días`.
+    - 📍 **Hoy**: muestra únicamente los servicios del día.
+    - 📅 **Próximos 7 Días**: ventana semanal operativa.
+    - 📊 **Mes Actual**: dinámico mes a mes (`01/MM` a fin de mes).
+    - 🗓️ **Personalizado**: selectores `Desde` y `Hasta` editables.
+    - Se eliminó el botón "Todos" y el filtro fijo "01/09/2026".
+  - **Simplificación de Ingesta**: Se removieron los selectores de extracción redundantes, dejando la vista enfocada en la carga manual por texto de vouchers y preview interactivo.
+
+---
+
+### 🟢 REQ-003: Exportación e Impresión en PDF y Excel Sincronizada con Filtros Operativos
+* **Fecha de Implementación**: 03/09/2026
+* **Descripción de la Necesidad**:
+  - Posibilidad de imprimir y descargar en formato PDF A4 Horizontal y Excel (.xlsx) la hoja operativa para choferes y despacho.
+  - Columnas requeridas: `N° Servicio`, `Fecha/Hora`, `Pasajeros`, `Origen`, `Destino` y `Observaciones`.
+  - La exportación debe respetar estrictamente el filtro seleccionado en pantalla (si está en 3 días exporta 3 días, si está en hoy exporta hoy, si está en 7 días exporta la semana, o rango personalizado/búsqueda).
+* **Solución Implementada**:
+  - **Servicio PDF (`pdfGeneratorService.js`)**: Generación en PDFKit con A4 Horizontal, cabecera con rango dinámico, tabla de 6 columnas proporcionales (781 pt), paginación y diseño corporativo limpio listo para imprimir (`Ctrl+P`).
+  - **Servicio Excel (`excelGeneratorService.js`)**: Generación en ExcelJS con configuración de página A4 Horizontal y autoajuste de columnas.
+  - **Endpoints API (`reportesController.js` y `reportesRoutes.js`)**: `/api/v1/reportes/servicios/pdf` y `/api/v1/reportes/servicios/excel`, recibiendo parámetros de filtrado en tiempo real.
+  - **Integración en UI (`ServiciosPage.jsx`)**: Botones `Imprimir / PDF` y `Excel` en la barra de acciones superior vinculados reactivamente al estado de los filtros.
+  - **Formateo de Fechas en Español**: Se corrigió la conversión de fechas para mostrar el día de la semana en español y la fecha numérica completa (`Jue 03/09/2026`), eliminando nombres en inglés.
+
+---
+
 ## 🗓️ Hoja de Ruta de Trabajo para Mañana
 
 ### 1. 🗄️ Normalización de la Base de Datos (Hasta 3FN)

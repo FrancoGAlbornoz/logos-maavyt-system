@@ -29,12 +29,16 @@ export default function LiquidacionPage() {
   const selectedPeriodo = periodos.find(p => String(p.periodo_id) === String(selectedPeriodoId));
 
   const handleDownloadPDF = () => {
-    const url = `/api/v1/reportes/hoja-de-ruta/pdf?periodo_id=${selectedPeriodoId}`;
+    const token = localStorage.getItem('maavyt_token') || '';
+    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
+    const url = `${apiBase}/reportes/hoja-de-ruta/pdf?periodo_id=${selectedPeriodoId}&token=${encodeURIComponent(token)}`;
     window.open(url, '_blank');
   };
 
   const handleDownloadExcel = () => {
-    const url = `/api/v1/reportes/liquidacion/excel?periodo_id=${selectedPeriodoId}`;
+    const token = localStorage.getItem('maavyt_token') || '';
+    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
+    const url = `${apiBase}/reportes/liquidacion/excel?periodo_id=${selectedPeriodoId}&token=${encodeURIComponent(token)}`;
     window.open(url, '_blank');
   };
 

@@ -11,6 +11,22 @@ COLLATE utf8mb4_unicode_ci;
 USE maavyt_db;
 
 -- ----------------------------------------------------------
+-- 0. Tabla de Usuarios y Seguridad (Fase 2)
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS usuarios (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    rol ENUM('ADMIN', 'OPERADOR') DEFAULT 'ADMIN',
+    activo BOOLEAN DEFAULT TRUE,
+    ultimo_login DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_usuario_email (email)
+) ENGINE=InnoDB;
+
+-- ----------------------------------------------------------
 -- 1. Tabla de Clientes / Agencias (1FN, 2FN, 3FN)
 -- ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clientes (
@@ -220,3 +236,6 @@ VALUES (1, 1, '430', 'AF123ZZ', 'Auto Std');
 
 INSERT IGNORE INTO periodos_liquidacion (id, anio, mes, quincena, fecha_inicio, fecha_fin) 
 VALUES (1, 2026, 9, 1, '2026-09-01', '2026-09-15');
+
+INSERT IGNORE INTO usuarios (id, nombre, email, password_hash, rol) 
+VALUES (1, 'Administrador MAAVYT', 'admin@maavyt.com', '$2b$10$K0B5NbLhW/3nnFbYQFKRsu6OdDDSZgzhU1X0VGvvGBwrVEIQf2YcC', 'ADMIN');

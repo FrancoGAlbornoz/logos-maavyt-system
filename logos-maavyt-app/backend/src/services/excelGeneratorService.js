@@ -1,4 +1,5 @@
 const ExcelJS = require('exceljs');
+const { formatFechaEspanol } = require('./pdfGeneratorService');
 
 /**
  * Genera la Planilla de Liquidación Quincenal en formato Excel (.xlsx)
@@ -152,7 +153,7 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
   }
 
   // 6. Ancho automático de columnas
-  worksheet.columns.forEach((column, index) => {
+  worksheet.columns.forEach((column) => {
     let maxLen = 12;
     column.eachCell({ includeEmpty: false }, (cell) => {
       const cellLen = cell.value ? String(cell.value).length : 0;
@@ -165,6 +166,141 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
   return buffer;
 }
 
+/**
+ * Genera la Planilla de Servicios Operativos en Excel (.xlsx) optimizada para impresión y despacho
+ * Columnas: N° Servicio, Fecha, Hora, Pasajeros, Origen, Destino y Observaciones
+ * @param {Array<Object>} servicios 
+ * @param {Object} metadata 
+ * @returns {Promise<Buffer>}
+ */
+async function generateServiciosOperativosExcel(servicios = [], metadata = {}) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Logos-MAAVYT System';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Servicios Operativos');
+
+  // Configuración de Impresión en A4 Horizontal
+  worksheet.pageSetup.orientation = 'landscape';
+  worksheet.pageSetup.paperSize = 9; // A4
+  worksheet.pageSetup.fitToPage = true;
+  worksheet.pageSetup.fitToWidth = 1;
+  worksheet.pageSetup.fitToHeight = 0;
+
+  // Estilos Base
+  const titleStyle = {
+    font: { name: 'Calibri', size: 15, bold: true, color: { argb: 'FFFFFFFF' } },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }, // Azul Ejecutivo
+    alignment: { vertical: 'middle', horizontal: 'center' }
+  };
+
+  const headerStyle = {
+    font: { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } }, // Slate 700
+    alignment: { vertical: 'middle', horizontal: 'center' },
+    border: {
+      top: { style: 'thin', color: { argb: 'FF94A3B8' } },
+      bottom: { style: 'medium', color: { argb: 'FF1E293B' } },
+      left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+    }
+  };
+
+  // 1. Título
+  worksheet.mergeCells('A1:G1');
+  const titleCell = worksheet.getCell('A1');
+  titleCell.value = 'LOGOS TRAVEL / MAAVYT - HOJA OPERATIVA DE SERVICIOS';
+  titleCell.style = titleStyle;
+  worksheet.getRow(1).height = 32;
+
+  // 2. Subtítulo con rango y fecha
+  worksheet.mergeCells('A2:G2');
+  const subTitleCell = worksheet.getCell('A2');
+  subTitleCell.value = `Filtro: ${metadata.rangeLabel || 'Período Operativo'} | Total: ${servicios.length} traslados | Generado: ${new Date().toLocaleDateString('es-AR')} ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs`;
+  subTitleCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF475569' } };
+  subTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  worksheet.getRow(2).height = 20;
+
+  worksheet.addRow([]); // Espaciador
+
+  // 3. Encabezados de Tabla (Fila 4)
+  const headers = [
+    'N° SERVICIO',
+    'FECHA',
+    'HORA',
+    'PASAJEROS',
+    'ORIGEN',
+    'DESTINO',
+    'OBSERVACIONES / VUELO'
+  ];
+
+  const headerRow = worksheet.addRow(headers);
+  headerRow.height = 24;
+  headerRow.eachCell((cell) => {
+    cell.style = headerStyle;
+  });
+
+  // 4. Agregar Filas
+  servicios.forEach((s, idx) => {
+    const pnames = s.pasajeros_concatenados || s.pasajeros?.map(p => p.nombre_completo).join(' / ') || 'A definir';
+    const fechaStr = formatFechaEspanol(s.fecha_servicio);
+    const horaStr = s.hora_servicio ? s.hora_servicio.substring(0, 5) : '';
+
+    const row = worksheet.addRow([
+      s.nro_reserva || `#${s.id}`,
+      fechaStr,
+      horaStr ? `${horaStr} hs` : '',
+      pnames,
+      s.origen || '',
+      s.destino || '',
+      s.vuelo_observacion || s.detalle_espera || '-'
+    ]);
+
+    row.height = 22;
+
+    // Fondo alternado
+    if (idx % 2 === 1) {
+      row.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+      });
+    }
+
+    // Alineaciones
+    row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(1).font = { bold: true };
+    row.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(4).alignment = { vertical: 'middle', wrapText: true };
+    row.getCell(5).alignment = { vertical: 'middle', wrapText: true };
+    row.getCell(6).alignment = { vertical: 'middle', wrapText: true };
+    row.getCell(7).alignment = { vertical: 'middle', wrapText: true };
+
+    // Bordes
+    row.eachCell((cell) => {
+      cell.border = {
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+      };
+    });
+  });
+
+  // 5. Ajuste de anchos de columna
+  worksheet.columns = [
+    { width: 16 }, // N° Reserva
+    { width: 14 }, // Fecha
+    { width: 12 }, // Hora
+    { width: 32 }, // Pasajeros
+    { width: 32 }, // Origen
+    { width: 32 }, // Destino
+    { width: 28 }  // Observaciones
+  ];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return buffer;
+}
+
 module.exports = {
-  generateLiquidacionExcel
+  generateLiquidacionExcel,
+  generateServiciosOperativosExcel
 };

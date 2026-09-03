@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchApi } from '../api/axiosInstance';
-import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, Mail, RefreshCw, UserPlus, Trash2, Calendar, Filter } from 'lucide-react';
+import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, Mail, RefreshCw, UserPlus, Trash2 } from 'lucide-react';
 
 export default function IngestaPage({ onImportSuccess }) {
   const [rawText, setRawText] = useState('');
@@ -10,10 +10,6 @@ export default function IngestaPage({ onImportSuccess }) {
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState(null);
   const [gmailStatus, setGmailStatus] = useState(null);
-
-  // Opciones de Filtro para Gmail Sync
-  const [syncModo, setSyncModo] = useState('cierre_quincenal'); // 'cierre_quincenal' | 'operativo_3dias' | 'personalizado'
-  const [fechaDesde, setFechaDesde] = useState('2026-09-01'); // Por defecto excluye agosto
 
   const checkGmailStatus = async () => {
     try {
@@ -32,26 +28,21 @@ export default function IngestaPage({ onImportSuccess }) {
     setSyncingGmail(true);
     setMessage(null);
     try {
-      const bodyPayload = {
-        modo: syncModo,
-        fecha_desde: syncModo === 'personalizado' ? fechaDesde : (syncModo === 'cierre_quincenal' ? '2026-09-01' : null)
-      };
-
       const res = await fetchApi('/gmail/sync', {
         method: 'POST',
-        body: JSON.stringify(bodyPayload)
+        body: JSON.stringify({ modo: 'operativo' })
       });
 
       if (res.success) {
         setMessage({
           type: 'success',
-          text: `Sincronización Gmail (${syncModo === 'operativo_3dias' ? 'Control 3 días' : 'Cierre Quincenal'}): ${res.vouchers_imported} nuevos, ${res.modifications_updated || 0} modificados, ${res.cancellations_updated || 0} cancelados.`
+          text: `Sincronización Gmail completada: ${res.vouchers_imported} nuevos, ${res.modifications_updated || 0} modificados, ${res.cancellations_updated || 0} cancelados.`
         });
         if ((res.vouchers_imported > 0 || res.cancellations_updated > 0 || res.modifications_updated > 0) && onImportSuccess) {
           onImportSuccess();
         }
       } else {
-        setMessage({ type: 'error', text: res.message });
+        setMessage({ type: 'error', text: res.message || 'No se pudo sincronizar con Gmail.' });
       }
     } catch (err) {
       setMessage({ type: 'error', text: err.message || 'Error al sincronizar con Gmail.' });
@@ -131,90 +122,27 @@ export default function IngestaPage({ onImportSuccess }) {
   return (
     <div className="space-y-6">
       
-      {/* Header y Control de Filtros de Sincronización */}
+      {/* Header y Control de Sincronización */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-blue-600" />
-              Ingesta e Extracción Inteligente de Mails
+              Ingesta y Extracción de Vouchers
             </h2>
             <p className="text-slate-500 text-sm mt-1">
-              Sincroniza tu etiqueta <b>MAAVYT</b> de Gmail evaluando altas, cancelaciones y modificaciones automáticas.
+              Pega el texto de cualquier voucher para previsualizarlo e importarlo, o sincroniza tu etiqueta <b>MAAVYT</b> de Gmail evaluando altas, cancelaciones y modificaciones automáticas.
             </p>
           </div>
 
           <button
             onClick={handleSyncGmail}
             disabled={syncingGmail}
-            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-md transition-all self-start md:self-auto"
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-md transition-all self-start md:self-auto cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${syncingGmail ? 'animate-spin' : ''}`} />
             {syncingGmail ? 'Procesando Mails...' : 'Sincronizar desde Gmail Ahora'}
           </button>
-        </div>
-
-        {/* Panel de Configuración de Filtro de Sincronización */}
-        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase">
-            <Filter className="w-4 h-4 text-blue-600" /> Filtro de Extracción:
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <label className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
-              syncModo === 'operativo_3dias' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300'
-            }`}>
-              <input
-                type="radio"
-                name="modo"
-                value="operativo_3dias"
-                checked={syncModo === 'operativo_3dias'}
-                onChange={() => setSyncModo('operativo_3dias')}
-                className="hidden"
-              />
-              ⚡ Control Operativo Próximos 3 días
-            </label>
-
-            <label className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
-              syncModo === 'cierre_quincenal' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300'
-            }`}>
-              <input
-                type="radio"
-                name="modo"
-                value="cierre_quincenal"
-                checked={syncModo === 'cierre_quincenal'}
-                onChange={() => setSyncModo('cierre_quincenal')}
-                className="hidden"
-              />
-              📊 Cierre Quincenal (Desde 01/09/2026)
-            </label>
-
-            <label className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
-              syncModo === 'personalizado' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300'
-            }`}>
-              <input
-                type="radio"
-                name="modo"
-                value="personalizado"
-                checked={syncModo === 'personalizado'}
-                onChange={() => setSyncModo('personalizado')}
-                className="hidden"
-              />
-              🗓️ Fecha Personalizada
-            </label>
-
-            {syncModo === 'personalizado' && (
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-slate-500 font-medium">Desde:</span>
-                <input
-                  type="date"
-                  className="p-1 border border-slate-300 rounded text-xs bg-white"
-                  value={fechaDesde}
-                  onChange={(e) => setFechaDesde(e.target.value)}
-                />
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -245,10 +173,10 @@ export default function IngestaPage({ onImportSuccess }) {
         </div>
       )}
 
-      {/* Input Manual de Texto Alternativo */}
+      {/* Input Manual de Texto */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
         <label className="block text-sm font-semibold text-slate-700">
-          Carga Manual por Texto (Alternativa)
+          Carga Manual por Texto de Voucher
         </label>
         <textarea
           rows={4}
@@ -262,7 +190,7 @@ export default function IngestaPage({ onImportSuccess }) {
           <button
             onClick={handlePreview}
             disabled={loading || !rawText.trim()}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all shadow-sm"
+            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all shadow-sm cursor-pointer"
           >
             {loading ? 'Analizando texto...' : 'Previsualizar Reserva(s)'}
             <ArrowRight className="w-4 h-4" />
@@ -280,7 +208,7 @@ export default function IngestaPage({ onImportSuccess }) {
             <button
               onClick={handleImport}
               disabled={importing}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm shadow-sm transition-all flex items-center gap-2"
+              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm shadow-sm transition-all flex items-center gap-2 cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
               {importing ? 'Importando...' : 'Confirmar e Importar a Base de Datos'}
@@ -325,7 +253,7 @@ export default function IngestaPage({ onImportSuccess }) {
                   <div>
                     <label className="block text-xs font-semibold text-slate-600">Categoría</label>
                     <select
-                      className="mt-1 w-full p-2 border border-slate-300 rounded text-sm bg-white"
+                      className="mt-1 w-full p-2 border border-slate-300 rounded text-sm bg-white cursor-pointer"
                       value={item.categoria_vehiculo}
                       onChange={(e) => handleItemChange(idx, 'categoria_vehiculo', e.target.value)}
                     >
@@ -374,7 +302,7 @@ export default function IngestaPage({ onImportSuccess }) {
                     <span className="text-xs font-bold text-slate-700 uppercase">Pasajeros</span>
                     <button
                       onClick={() => addPassenger(idx)}
-                      className="text-xs text-blue-600 font-semibold flex items-center gap-1 hover:underline"
+                      className="text-xs text-blue-600 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
                     >
                       <UserPlus className="w-3.5 h-3.5" /> Agregar Pasajero
                     </button>
@@ -399,7 +327,7 @@ export default function IngestaPage({ onImportSuccess }) {
                       {item.pasajeros.length > 1 && (
                         <button
                           onClick={() => removePassenger(idx, pIdx)}
-                          className="p-1 text-slate-400 hover:text-rose-600"
+                          className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
