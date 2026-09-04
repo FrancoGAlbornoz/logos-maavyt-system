@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "init-db": "node src/scripts/initDb.js"
+    "init-db": "node src/scripts/initDb.js",
+    "bootstrap:cloud": "node src/scripts/bootstrapCloudDb.js"
   },
   "keywords": [],
   "author": "Franco Genaro Albornoz",
