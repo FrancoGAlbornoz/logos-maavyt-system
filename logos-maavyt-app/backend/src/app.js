@@ -1,4 +1,4 @@
-const express = require('express');
+ï»¿const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -10,38 +10,51 @@ require('dotenv').config();
 const app = express();
 
 // 1. Cabeceras de seguridad HTTP con Helmet
-// contentSecurityPolicy en false permite a Swagger UI renderizar sus assets locales
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 
-// 2. Configuración de CORS estricto
+// 2. Configuracion de CORS estricto y resiliente para produccion
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  'https://logos-maavyt-system.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://127.0.0.1:5173'
-].filter(Boolean);
+].filter(Boolean).map(url => url.replace(/\/$/, ''));
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
-    // Permite solicitudes sin origen (como Postman, Curl, o descargas directas) y orígenes autorizados
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Permitir solicitudes sin origen (Postman, server-to-server, curl)
+    if (!origin) return callback(null, true);
+
+    const normalizedOrigin = origin.replace(/\/$/, '');
+
+    // Permitir origenes configurados o cualquier despliegue de Vercel del proyecto
+    const isAllowed = allowedOrigins.includes(normalizedOrigin) || 
+                      /^https:\/\/logos-maavyt-system.*\.vercel\.app$/.test(normalizedOrigin);
+
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error(`Acceso bloqueado por política CORS desde origen: ${origin}`));
+      console.warn('[CORS Blocked] Origen bloqueado:', origin);
+      callback(null, false);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
+};
 
-// 3. Limitador de peticiones global para proteger el servidor (Anti-DoS)
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// 3. Limitador de peticiones global (Anti-DoS)
 const globalApiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minuto
-  max: 200, // Máximo 200 peticiones por minuto por IP
+  windowMs: 1 * 60 * 1000,
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -54,11 +67,11 @@ const globalApiLimiter = rateLimit({
 });
 app.use('/api', globalApiLimiter);
 
-// 4. Procesamiento de cuerpo JSON y URL Encoded con límite seguro
+// 4. Procesamiento de cuerpo JSON y URL Encoded
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 5. Documentación interactiva de Swagger UI
+// 5. Documentacion Swagger UI
 setupSwagger(app);
 
 // 6. Rutas de la API v1
