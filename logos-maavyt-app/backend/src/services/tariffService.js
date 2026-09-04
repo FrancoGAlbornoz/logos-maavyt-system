@@ -8,7 +8,18 @@ const TARIFA_HORA_ESPERA = 20302; // $20.302 por hora de espera
  * Importa las tarifas desde el Excel oficial a la tabla `tarifario` en MySQL
  */
 async function loadTarifarioFromExcel() {
-  const filePath = path.join(__dirname, '../../../../Tarifario M.A.A.V.Y.T - Vigencia desde 01.05 al 30.09.2026.xlsx');
+  const fs = require('fs');
+  const candidatePaths = [
+    process.env.TARIFARIO_PATH,
+    path.join(__dirname, '../../data/Tarifario.xlsx'),
+    path.join(__dirname, '../../../../Tarifario M.A.A.V.Y.T - Vigencia desde 01.05 al 30.09.2026.xlsx'),
+    path.join(process.cwd(), 'Tarifario M.A.A.V.Y.T - Vigencia desde 01.05 al 30.09.2026.xlsx')
+  ].filter(Boolean);
+
+  let filePath = candidatePaths.find(p => fs.existsSync(p));
+  if (!filePath) {
+    throw new Error(`Archivo de tarifario no encontrado en ninguna de las rutas esperadas: ${candidatePaths.join(', ')}`);
+  }
   console.log(`[Tariff Service] Importando tarifario desde: ${filePath}`);
 
   const workbook = new ExcelJS.Workbook();

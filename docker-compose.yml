@@ -1,0 +1,78 @@
+services:
+  # -------------------------------------------------------------
+  # 1. Base de Datos Relacional MySQL 8.0
+  # -------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: maavyt-mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-maavyt_root_secure_2026}
+      MYSQL_DATABASE: maavyt_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./logos-maavyt-app/backend/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # -------------------------------------------------------------
+  # 2. Backend REST API (Node.js 20 Express)
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: ./logos-maavyt-app/backend
+      dockerfile: Dockerfile
+    container_name: maavyt-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-maavyt_root_secure_2026}
+      DB_NAME: maavyt_db
+      DB_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-maavyt_super_secure_jwt_secret_key_2026_x99}
+      JWT_EXPIRES_IN: 8h
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      GMAIL_USER: ${GMAIL_USER:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      GMAIL_LABEL: ${GMAIL_LABEL:-MAAVYT}
+      GMAIL_AUTO_SYNC: ${GMAIL_AUTO_SYNC:-false}
+      GMAIL_SYNC_INTERVAL_MINUTES: ${GMAIL_SYNC_INTERVAL_MINUTES:-15}
+    ports:
+      - "3001:3001"
+
+  # -------------------------------------------------------------
+  # 3. Frontend SPA (React 19 + Nginx Alpine)
+  # -------------------------------------------------------------
+  frontend:
+    build:
+      context: ./logos-maavyt-app/frontend
+      dockerfile: Dockerfile
+    container_name: maavyt-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+
+volumes:
+  mysql_data:
+    name: maavyt_mysql_data
+
+networks:
+  default:
+    name: maavyt-network
