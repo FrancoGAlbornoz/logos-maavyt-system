@@ -1,0 +1,56 @@
+name: CI/CD Pipeline - Logos MAAVYT Manager
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-frontend:
+    name: Validar Compilacion Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: logos-maavyt-app/frontend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: logos-maavyt-app/frontend
+        run: npm ci
+
+      - name: Verificar Linting
+        working-directory: logos-maavyt-app/frontend
+        run: npm run lint
+
+      - name: Compilar Bundle de Produccion
+        working-directory: logos-maavyt-app/frontend
+        run: npm run build
+
+  validate-backend:
+    name: Validar Sintaxis y Dependencias Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: logos-maavyt-app/backend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: logos-maavyt-app/backend
+        run: npm ci
+
+      - name: Verificar sintaxis de codigo Node
+        working-directory: logos-maavyt-app/backend
+        run: node -c src/server.js src/app.js

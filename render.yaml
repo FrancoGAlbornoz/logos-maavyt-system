@@ -1,0 +1,38 @@
+services:
+  # -------------------------------------------------------------
+  # Backend API REST - Logos-MAAVYT Manager
+  # -------------------------------------------------------------
+  - type: web
+    name: logos-maavyt-api
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: logos-maavyt-app/backend
+    buildCommand: npm ci --only=production
+    startCommand: node src/server.js
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DB_SSL
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: FRONTEND_URL
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GMAIL_LABEL
+        value: MAAVYT
+      - key: GMAIL_AUTO_SYNC
+        value: "false"
+      - key: GMAIL_SYNC_INTERVAL_MINUTES
+        value: "15"
