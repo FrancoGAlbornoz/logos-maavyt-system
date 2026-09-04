@@ -4,6 +4,7 @@ import IngestaPage from './pages/IngestaPage';
 import ServiciosPage from './pages/ServiciosPage';
 import LiquidacionPage from './pages/LiquidacionPage';
 import LoginPage from './pages/LoginPage';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('servicios');
@@ -54,11 +55,13 @@ export default function App() {
       />
       
       <main className="flex-1 w-full max-w-[1600px] mx-auto px-3 sm:px-6 py-4">
-        {activeTab === 'ingesta' && (
-          <IngestaPage onImportSuccess={() => setActiveTab('servicios')} />
-        )}
-        {activeTab === 'servicios' && <ServiciosPage />}
-        {activeTab === 'liquidacion' && <LiquidacionPage />}
+        <ErrorBoundary>
+          {activeTab === 'ingesta' && (
+            <IngestaPage onImportSuccess={() => setActiveTab('servicios')} />
+          )}
+          {activeTab === 'servicios' && <ServiciosPage />}
+          {activeTab === 'liquidacion' && <LiquidacionPage />}
+        </ErrorBoundary>
       </main>
 
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">

@@ -53,7 +53,7 @@ export default function LoginPage({ onLoginSuccess }) {
             Logos-MAAVYT <span className="text-blue-400 font-light">Manager</span>
           </h1>
           <p className="text-slate-400 text-xs mt-1 font-medium">
-            Sistema de GestiÃ³n Operativa, Ingesta & Liquidaciones
+            Sistema de Gestion Operativa, Ingesta & Liquidaciones
           </p>
         </div>
 
@@ -69,7 +69,7 @@ export default function LoginPage({ onLoginSuccess }) {
         <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Correo Electrï¿½nico
+              Correo Electronico
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -88,7 +88,7 @@ export default function LoginPage({ onLoginSuccess }) {
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Contraseï¿½a
+              Contraseña
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -99,7 +99,7 @@ export default function LoginPage({ onLoginSuccess }) {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½"
+                placeholder="*****************"
                 className="w-full pl-10 pr-11 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               />
               <button
@@ -121,7 +121,7 @@ export default function LoginPage({ onLoginSuccess }) {
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
             ) : (
               <>
-                <span>Iniciar Sesiï¿½n</span>
+                <span>Iniciar Sesion</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
@@ -131,7 +131,7 @@ export default function LoginPage({ onLoginSuccess }) {
         {/* Footer del card */}
         <div className="pt-4 border-t border-slate-700/60 flex items-center justify-center gap-2 text-xs text-slate-400">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Autenticaciï¿½n Segura JWT & Conexiï¿½n Encriptada</span>
+          <span>Autenticacion Segura JWT & Conexion Encriptada</span>
         </div>
       </div>
     </div>

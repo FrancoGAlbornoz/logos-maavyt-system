@@ -1,0 +1,4 @@
+# Logos-MAAVYT Manager - Sistema Privado de Gestion Interna
+# Bloqueo estricto para evitar indexacion de datos corporativos
+User-agent: *
+Disallow: /
