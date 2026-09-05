@@ -91,7 +91,10 @@ async function performSync(user, password, targetFolder, options = {}) {
       await connection.openBox('INBOX');
     }
 
-    const searchCriteria = ['ALL'];
+    let searchCriteria = ['ALL'];
+    if (minDate && !isNaN(minDate.getTime())) {
+      searchCriteria = [['SINCE', minDate]];
+    }
     const fetchOptions = { bodies: [''], markSeen: true };
 
     const messages = await connection.search(searchCriteria, fetchOptions);
@@ -289,5 +292,6 @@ async function performSync(user, password, targetFolder, options = {}) {
 module.exports = {
   syncGmailVouchers
 };
+
 
 
