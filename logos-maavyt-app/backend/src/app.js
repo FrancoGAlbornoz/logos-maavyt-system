@@ -9,6 +9,9 @@ require('dotenv').config();
 
 const app = express();
 
+// Confiar en el proxy de Render para resolver IPs detras de X-Forwarded-For
+app.set('trust proxy', 1);
+
 // 1. Cabeceras de seguridad HTTP con Helmet
 app.use(helmet({
   contentSecurityPolicy: false,
@@ -57,6 +60,7 @@ const globalApiLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: {
     success: false,
     error: {

@@ -30,7 +30,8 @@ export default function IngestaPage({ onImportSuccess }) {
     try {
       const res = await fetchApi('/gmail/sync', {
         method: 'POST',
-        body: JSON.stringify({ modo: 'operativo' })
+        body: JSON.stringify({ modo: 'operativo' }),
+        timeout: 180000
       });
 
       if (res.success) {
@@ -389,3 +390,4 @@ export default function IngestaPage({ onImportSuccess }) {
     </div>
   );
 }
+

@@ -24,9 +24,10 @@ async function syncGmailVouchers(options = {}) {
     };
   }
 
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar con Gmail IMAP')), 30000)
-  );
+  const GMAIL_SYNC_TIMEOUT_MS = Number(process.env.GMAIL_TIMEOUT_MS) || 180000;
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Tiempo de espera agotado al conectar y procesar Gmail IMAP (limite de 3 minutos)')), GMAIL_SYNC_TIMEOUT_MS);
+  });
 
   return Promise.race([
     performSync(user, password, targetFolder, options),
@@ -74,7 +75,7 @@ async function performSync(user, password, targetFolder, options = {}) {
       port: 993,
       tls: true,
       tlsOptions: { rejectUnauthorized: false },
-      authTimeout: 12000
+      authTimeout: 25000
     }
   };
 
@@ -101,7 +102,12 @@ async function performSync(user, password, targetFolder, options = {}) {
     let modificationsUpdated = 0;
     const importedDetails = [];
 
+    let msgIdx = 0;
     for (const item of messages) {
+      msgIdx++;
+      if (msgIdx % 5 === 0 || msgIdx === 1 || msgIdx === messages.length) {
+        console.log('[Gmail Service] Procesando correo ' + msgIdx + '/' + messages.length + '...');
+      }
       const allParts = item.parts.find(part => part.which === '');
 
       if (allParts && allParts.body) {
@@ -283,3 +289,5 @@ async function performSync(user, password, targetFolder, options = {}) {
 module.exports = {
   syncGmailVouchers
 };
+
+

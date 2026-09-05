@@ -137,7 +137,8 @@ export default function ServiciosPage() {
     try {
       const res = await fetchApi('/gmail/sync', {
         method: 'POST',
-        body: JSON.stringify({ modo: 'operativo' })
+        body: JSON.stringify({ modo: 'operativo' }),
+        timeout: 180000
       });
 
       if (res.success) {
@@ -320,7 +321,7 @@ export default function ServiciosPage() {
             title="Buscar y sincronizar nuevos vouchers, modificaciones y cancelaciones desde Gmail"
           >
             <RefreshCw className={`w-4 h-4 ${syncingGmail ? 'animate-spin' : ''}`} />
-            {syncingGmail ? 'Sincronizando...' : 'Sincronizar Gmail'}
+            {syncingGmail ? 'Sincronizando correos (puede demorar)...' : 'Sincronizar Gmail'}
           </button>
 
           {/* Botón Imprimir / PDF */}
@@ -787,3 +788,4 @@ export default function ServiciosPage() {
     </div>
   );
 }
+

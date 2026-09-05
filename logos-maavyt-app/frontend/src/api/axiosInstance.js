@@ -1,13 +1,14 @@
-const API_BASE = import.meta.env.VITE_API_URL 
+﻿const API_BASE = import.meta.env.VITE_API_URL 
   ? `${import.meta.env.VITE_API_URL}/api/v1` 
   : '/api/v1';
 
 export async function fetchApi(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
   
-  // Timeout de 25 segundos para evitar que la petición quede colgada indefinidamente
+  // Timeout configurable: 60s por defecto, o el especificado en options.timeout (ej. 180s para Gmail Sync)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), options.timeout || 25000);
+  const timeoutMs = options.timeout || 60000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   // Inyectar Token JWT si existe en localStorage
   const token = localStorage.getItem('maavyt_token');
@@ -27,11 +28,11 @@ export async function fetchApi(endpoint, options = {}) {
     clearTimeout(timeoutId);
 
     if (response.status === 401) {
-      // Sesión expirada o token inválido: limpiar almacenamiento y emitir evento
+      // Sesion expirada o token invalido: limpiar almacenamiento y emitir evento
       localStorage.removeItem('maavyt_token');
       localStorage.removeItem('maavyt_user');
       window.dispatchEvent(new Event('maavyt_unauthorized'));
-      throw new Error('Tu sesión ha expirado o no estás autenticado. Por favor, inicia sesión.');
+      throw new Error('Tu sesion ha expirado o no estas autenticado. Por favor, inicia sesion.');
     }
 
     if (!response.ok) {
@@ -43,7 +44,7 @@ export async function fetchApi(endpoint, options = {}) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('La petición ha superado el tiempo límite de respuesta. Verifica que el servidor backend esté en ejecución.');
+      throw new Error(`La peticion ha superado el tiempo limite (${Math.round(timeoutMs / 1000)}s). Si estas sincronizando Gmail con muchos correos, el servidor sigue procesando en segundo plano.`);
     }
     throw err;
   }
