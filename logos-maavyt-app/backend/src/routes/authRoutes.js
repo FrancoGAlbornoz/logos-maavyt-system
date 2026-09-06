@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const authController = require('../controllers/authController');
@@ -20,7 +20,24 @@ const loginLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Rate limiting para cambio de contrasena
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // Maximo 10 intentos por IP
+  validate: { xForwardedForHeader: false },
+  message: {
+    success: false,
+    error: {
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Demasiados intentos de cambio de contrasena. Por favor intente en 15 minutos.'
+    }
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 router.post('/login', loginLimiter, authController.login);
 router.get('/me', verifyToken, authController.getMe);
+router.put('/change-password', verifyToken, changePasswordLimiter, authController.changePassword);
 
 module.exports = router;

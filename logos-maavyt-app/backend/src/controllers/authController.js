@@ -5,12 +5,21 @@ const { pool } = require('../config/database');
 require('dotenv').config();
 
 const loginSchema = z.object({
-  email: z.string().email('Formato de correo electrónico inválido'),
-  password: z.string().min(6, 'La contraseña debe contener al menos 6 caracteres')
+  email: z.string().email('Formato de correo electronico invalido'),
+  password: z.string().min(6, 'La contrasena debe contener al menos 6 caracteres')
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'La contrasena actual es requerida'),
+  newPassword: z.string().min(8, 'La nueva contrasena debe tener al menos 8 caracteres'),
+  confirmPassword: z.string().min(1, 'La confirmacion de la contrasena es requerida')
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: 'Las contrasenas no coinciden',
+  path: ['confirmPassword']
 });
 
 /**
- * Autenticación de usuarios y emisión de JWT
+ * Autenticacion de usuarios y emision de JWT
  */
 async function login(req, res, next) {
   try {
@@ -27,7 +36,7 @@ async function login(req, res, next) {
         success: false,
         error: {
           code: 'INVALID_CREDENTIALS',
-          message: 'Credenciales inválidas. Verifica tu correo y contraseña.'
+          message: 'Credenciales invalidas. Verifica tu correo y contrasena.'
         }
       });
     }
@@ -39,7 +48,7 @@ async function login(req, res, next) {
         success: false,
         error: {
           code: 'USER_DISABLED',
-          message: 'Tu cuenta ha sido desactivada. Comunícate con el administrador.'
+          message: 'Tu cuenta ha sido desactivada. Comunicate con el administrador.'
         }
       });
     }
@@ -50,12 +59,12 @@ async function login(req, res, next) {
         success: false,
         error: {
           code: 'INVALID_CREDENTIALS',
-          message: 'Credenciales inválidas. Verifica tu correo y contraseña.'
+          message: 'Credenciales invalidas. Verifica tu correo y contrasena.'
         }
       });
     }
 
-    // Actualizar fecha de último login
+    // Actualizar fecha de ultimo login
     await pool.execute(`UPDATE usuarios SET ultimo_login = NOW() WHERE id = ?`, [user.id]);
 
     // Generar Token JWT firmado
@@ -73,7 +82,7 @@ async function login(req, res, next) {
 
     res.json({
       success: true,
-      message: 'Inicio de sesión exitoso',
+      message: 'Inicio de sesion exitoso',
       data: {
         token,
         user: tokenPayload
@@ -119,7 +128,75 @@ async function getMe(req, res, next) {
   }
 }
 
+/**
+ * Cambio de contrasena para el usuario autenticado
+ */
+async function changePassword(req, res, next) {
+  try {
+    const validatedData = changePasswordSchema.parse(req.body);
+    const { currentPassword, newPassword } = validatedData;
+    const userId = req.user.id;
+
+    // Buscar hash actual del usuario
+    const [users] = await pool.execute(
+      `SELECT id, password_hash FROM usuarios WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'USER_NOT_FOUND',
+          message: 'Usuario no encontrado'
+        }
+      });
+    }
+
+    const user = users[0];
+
+    // Verificar que la contrasena actual ingresada coincida con el hash almacenado
+    const isCurrentValid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!isCurrentValid) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_CURRENT_PASSWORD',
+          message: 'La contrasena actual ingresada es incorrecta.'
+        }
+      });
+    }
+
+    // Hashear la nueva contrasena con salt de 10 rondas
+    const saltRounds = 10;
+    const newHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Actualizar en base de datos
+    await pool.execute(
+      `UPDATE usuarios SET password_hash = ? WHERE id = ?`,
+      [newHash, userId]
+    );
+
+    res.json({
+      success: true,
+      message: 'Contrasena actualizada exitosamente'
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: error.errors.map(e => e.message).join(', ')
+        }
+      });
+    }
+    next(error);
+  }
+}
+
 module.exports = {
   login,
-  getMe
+  getMe,
+  changePassword
 };
