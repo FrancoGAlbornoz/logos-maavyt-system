@@ -1,0 +1,23 @@
+﻿name: Render Backend Keep-Alive Ping
+
+on:
+  schedule:
+    # Se ejecuta cada 10 minutos para evitar que el plan free de Render hiberne a los 15 min
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Permite ejecucion manual desde GitHub Actions
+
+jobs:
+  ping-render:
+    name: Ping Healthcheck API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping al endpoint de salud en Render
+        run: |
+          echo "Enviando ping keep-alive a https://logos-maavyt-api.onrender.com/api/v1/health ..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 45 https://logos-maavyt-api.onrender.com/api/v1/health)
+          echo "Codigo de respuesta HTTP: $STATUS"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Alerta: El backend respondio con codigo $STATUS"
+            exit 1
+          fi
+          echo "Render Backend se mantiene activo y respondiendo."
