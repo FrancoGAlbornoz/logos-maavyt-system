@@ -227,6 +227,9 @@ export default function ServiciosPage() {
     try {
       const res = await fetchApi(`/servicios/${srv.id}`);
       const data = res.data;
+      if (data.fecha_servicio) {
+        data.fecha_servicio = String(data.fecha_servicio).substring(0, 10);
+      }
       if (!Array.isArray(data.pasajeros) || data.pasajeros.length === 0) {
         data.pasajeros = [{ nombre_completo: '', documento_o_referencia: '' }];
       }
@@ -283,15 +286,21 @@ export default function ServiciosPage() {
   const handleSaveModal = async (e) => {
     e.preventDefault();
     try {
+      const payload = {
+        ...editingService,
+        fecha_servicio: editingService.fecha_servicio 
+          ? String(editingService.fecha_servicio).substring(0, 10) 
+          : getLocalDateStr()
+      };
       if (editingService.id) {
         await fetchApi(`/servicios/${editingService.id}`, {
           method: 'PUT',
-          body: JSON.stringify(editingService)
+          body: JSON.stringify(payload)
         });
       } else {
         await fetchApi('/servicios', {
           method: 'POST',
-          body: JSON.stringify(editingService)
+          body: JSON.stringify(payload)
         });
       }
       setIsModalOpen(false);

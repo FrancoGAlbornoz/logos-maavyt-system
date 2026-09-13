@@ -1,5 +1,24 @@
 const { pool } = require('../config/database');
 
+function sanitizeDate(dateVal) {
+  if (!dateVal) return null;
+  const str = String(dateVal);
+  if (str.includes('T')) {
+    return str.split('T')[0];
+  }
+  return str.substring(0, 10);
+}
+
+function sanitizeTime(timeVal) {
+  if (!timeVal) return '00:00:00';
+  const str = String(timeVal).trim();
+  const parts = str.split(':');
+  const h = (parts[0] || '00').padStart(2, '0');
+  const m = (parts[1] || '00').padStart(2, '0');
+  const s = (parts[2] || '00').padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
 /**
  * Listar servicios activos (por defecto omite borrados lógicos)
  */
@@ -104,6 +123,9 @@ async function getServicioById(req, res, next) {
     }
 
     const servicio = servicios[0];
+    if (servicio.fecha_servicio) {
+      servicio.fecha_servicio = sanitizeDate(servicio.fecha_servicio);
+    }
     const [pasajeros] = await pool.execute(`SELECT * FROM pasajeros WHERE servicio_id = ?`, [id]);
     servicio.pasajeros = pasajeros;
 
@@ -127,6 +149,9 @@ async function createServicio(req, res, next) {
       monto_adicionales, total, estado_servicio, observaciones_internas, pasajeros
     } = req.body;
 
+    const cleanFecha = sanitizeDate(fecha_servicio) || new Date().toISOString().split('T')[0];
+    const cleanHora = sanitizeTime(hora_servicio);
+
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -140,7 +165,7 @@ async function createServicio(req, res, next) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nro_reserva || 'S/N', cliente_id || 1, periodo_id || 1, conductor_id || 1, vehiculo_id || 1,
-        fecha_servicio, hora_servicio || '00:00:00', categoria_vehiculo || 'Auto Std',
+        cleanFecha, cleanHora, categoria_vehiculo || 'Auto Std',
         origen, destino, origen_2 || null, destino_2 || null,
         vuelo_observacion || null, subtotal || 0, minutos_espera || 0,
         detalle_espera || null, monto_espera || 0, monto_adicionales || 0, total || 0,
@@ -188,6 +213,9 @@ async function updateServicio(req, res, next) {
       monto_adicionales, total, estado_servicio, observaciones_internas, pasajeros
     } = req.body;
 
+    const cleanFecha = sanitizeDate(fecha_servicio) || new Date().toISOString().split('T')[0];
+    const cleanHora = sanitizeTime(hora_servicio);
+
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -201,7 +229,7 @@ async function updateServicio(req, res, next) {
       WHERE id = ?`,
       [
         nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
-        fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
+        cleanFecha, cleanHora, categoria_vehiculo, origen, destino,
         origen_2 || null, destino_2 || null,
         vuelo_observacion, subtotal, minutos_espera, detalle_espera, monto_espera,
         monto_adicionales, total, estado_servicio, observaciones_internas, id
