@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchApi } from '../api/axiosInstance';
+import { fetchApi, API_BASE } from '../api/axiosInstance';
 import {
   Search, Filter, Plus, Edit2, CheckCircle, Clock, XCircle,
   AlertTriangle, Calendar, Archive, RotateCcw, ShieldAlert, RefreshCw,
@@ -166,17 +166,21 @@ export default function ServiciosPage() {
     if (search) params.append('search', search);
     if (estadoFilter) params.append('estado', estadoFilter);
     params.append('range_label', rangeLabel);
+
+    const token = localStorage.getItem('maavyt_token');
+    if (token) params.append('token', token);
+
     return params.toString();
   };
 
   const handlePrintPDF = () => {
     const query = buildExportParams();
-    window.open(`/api/v1/reportes/servicios/pdf?${query}`, '_blank');
+    window.open(`${API_BASE}/reportes/servicios/pdf?${query}`, '_blank');
   };
 
   const handleExportExcel = () => {
     const query = buildExportParams();
-    window.location.href = `/api/v1/reportes/servicios/excel?${query}`;
+    window.open(`${API_BASE}/reportes/servicios/excel?${query}`, '_blank');
   };
 
   const handleStatusChange = async (id, newStatus) => {

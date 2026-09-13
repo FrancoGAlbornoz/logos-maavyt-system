@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchApi } from '../api/axiosInstance';
+import { fetchApi, API_BASE } from '../api/axiosInstance';
 import { FileSpreadsheet, FileText, Calendar, DollarSign, Activity, CheckSquare, Clock } from 'lucide-react';
 
 export default function LiquidacionPage() {
@@ -30,15 +30,13 @@ export default function LiquidacionPage() {
 
   const handleDownloadPDF = () => {
     const token = localStorage.getItem('maavyt_token') || '';
-    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
-    const url = `${apiBase}/reportes/hoja-de-ruta/pdf?periodo_id=${selectedPeriodoId}&token=${encodeURIComponent(token)}`;
+    const url = `${API_BASE}/reportes/hoja-de-ruta/pdf?periodo_id=${selectedPeriodoId}&token=${encodeURIComponent(token)}`;
     window.open(url, '_blank');
   };
 
   const handleDownloadExcel = () => {
     const token = localStorage.getItem('maavyt_token') || '';
-    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
-    const url = `${apiBase}/reportes/liquidacion/excel?periodo_id=${selectedPeriodoId}&token=${encodeURIComponent(token)}`;
+    const url = `${API_BASE}/reportes/liquidacion/excel?periodo_id=${selectedPeriodoId}&token=${encodeURIComponent(token)}`;
     window.open(url, '_blank');
   };
 
