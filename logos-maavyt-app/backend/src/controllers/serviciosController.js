@@ -11,6 +11,7 @@ async function getServicios(req, res, next) {
       SELECT 
         s.id, s.nro_reserva, s.cliente_id, s.periodo_id, s.conductor_id, s.vehiculo_id,
         s.fecha_servicio, s.hora_servicio, s.categoria_vehiculo, s.origen, s.destino,
+        s.origen_2, s.destino_2,
         s.vuelo_observacion, s.estado_servicio, s.subtotal, s.minutos_espera,
         s.detalle_espera, s.monto_espera, s.monto_adicionales, s.total, s.liquidado,
         s.observaciones_internas, s.deleted_at, s.created_at,
@@ -121,6 +122,7 @@ async function createServicio(req, res, next) {
     const {
       nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
       fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
+      origen_2, destino_2,
       vuelo_observacion, subtotal, minutos_espera, detalle_espera, monto_espera,
       monto_adicionales, total, estado_servicio, observaciones_internas, pasajeros
     } = req.body;
@@ -132,13 +134,15 @@ async function createServicio(req, res, next) {
       `INSERT INTO servicios (
         nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
         fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
+        origen_2, destino_2,
         vuelo_observacion, subtotal, minutos_espera, detalle_espera, monto_espera,
         monto_adicionales, total, estado_servicio, observaciones_internas
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nro_reserva || 'S/N', cliente_id || 1, periodo_id || 1, conductor_id || 1, vehiculo_id || 1,
         fecha_servicio, hora_servicio || '00:00:00', categoria_vehiculo || 'Auto Std',
-        origen, destino, vuelo_observacion || null, subtotal || 0, minutos_espera || 0,
+        origen, destino, origen_2 || null, destino_2 || null,
+        vuelo_observacion || null, subtotal || 0, minutos_espera || 0,
         detalle_espera || null, monto_espera || 0, monto_adicionales || 0, total || 0,
         estado_servicio || 'Confirmado', observaciones_internas || null
       ]
@@ -179,6 +183,7 @@ async function updateServicio(req, res, next) {
     const {
       nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
       fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
+      origen_2, destino_2,
       vuelo_observacion, subtotal, minutos_espera, detalle_espera, monto_espera,
       monto_adicionales, total, estado_servicio, observaciones_internas, pasajeros
     } = req.body;
@@ -190,12 +195,14 @@ async function updateServicio(req, res, next) {
       `UPDATE servicios SET
         nro_reserva = ?, cliente_id = ?, periodo_id = ?, conductor_id = ?, vehiculo_id = ?,
         fecha_servicio = ?, hora_servicio = ?, categoria_vehiculo = ?, origen = ?, destino = ?,
+        origen_2 = ?, destino_2 = ?,
         vuelo_observacion = ?, subtotal = ?, minutos_espera = ?, detalle_espera = ?, monto_espera = ?,
         monto_adicionales = ?, total = ?, estado_servicio = ?, observaciones_internas = ?
       WHERE id = ?`,
       [
         nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
         fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
+        origen_2 || null, destino_2 || null,
         vuelo_observacion, subtotal, minutos_espera, detalle_espera, monto_espera,
         monto_adicionales, total, estado_servicio, observaciones_internas, id
       ]

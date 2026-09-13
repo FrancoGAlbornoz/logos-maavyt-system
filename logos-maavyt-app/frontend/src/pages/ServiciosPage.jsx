@@ -3,7 +3,7 @@ import { fetchApi } from '../api/axiosInstance';
 import {
   Search, Filter, Plus, Edit2, CheckCircle, Clock, XCircle,
   AlertTriangle, Calendar, Archive, RotateCcw, ShieldAlert, RefreshCw,
-  Printer, FileSpreadsheet
+  Printer, FileSpreadsheet, Users, Trash2
 } from 'lucide-react';
 
 // Helper de formateo seguro para fecha local YYYY-MM-DD
@@ -137,8 +137,7 @@ export default function ServiciosPage() {
     try {
       const res = await fetchApi('/gmail/sync', {
         method: 'POST',
-        body: JSON.stringify({ modo: 'operativo' }),
-        timeout: 180000
+        body: JSON.stringify({ modo: 'operativo' })
       });
 
       if (res.success) {
@@ -171,17 +170,13 @@ export default function ServiciosPage() {
   };
 
   const handlePrintPDF = () => {
-    const token = localStorage.getItem('maavyt_token') || '';
-    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
     const query = buildExportParams();
-    window.open(`${apiBase}/reportes/servicios/pdf?${query}&token=${encodeURIComponent(token)}`, '_blank');
+    window.open(`/api/v1/reportes/servicios/pdf?${query}`, '_blank');
   };
 
   const handleExportExcel = () => {
-    const token = localStorage.getItem('maavyt_token') || '';
-    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
     const query = buildExportParams();
-    window.location.href = `${apiBase}/reportes/servicios/excel?${query}&token=${encodeURIComponent(token)}`;
+    window.location.href = `/api/v1/reportes/servicios/excel?${query}`;
   };
 
   const handleStatusChange = async (id, newStatus) => {
@@ -231,7 +226,11 @@ export default function ServiciosPage() {
   const openEditModal = async (srv) => {
     try {
       const res = await fetchApi(`/servicios/${srv.id}`);
-      setEditingService(res.data);
+      const data = res.data;
+      if (!Array.isArray(data.pasajeros) || data.pasajeros.length === 0) {
+        data.pasajeros = [{ nombre_completo: '', documento_o_referencia: '' }];
+      }
+      setEditingService(data);
       setIsModalOpen(true);
     } catch (err) {
       alert('Error al cargar detalle del servicio');
@@ -246,6 +245,8 @@ export default function ServiciosPage() {
       categoria_vehiculo: 'Auto Std',
       origen: '',
       destino: '',
+      origen_2: '',
+      destino_2: '',
       vuelo_observacion: '',
       subtotal: 0,
       minutos_espera: 0,
@@ -256,6 +257,27 @@ export default function ServiciosPage() {
       pasajeros: [{ nombre_completo: '', documento_o_referencia: '' }]
     });
     setIsModalOpen(true);
+  };
+
+  const handlePassengerChange = (idx, field, value) => {
+    const updated = [...(editingService.pasajeros || [])];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setEditingService({ ...editingService, pasajeros: updated });
+  };
+
+  const handleAddPassenger = () => {
+    setEditingService({
+      ...editingService,
+      pasajeros: [...(editingService.pasajeros || []), { nombre_completo: '', documento_o_referencia: '' }]
+    });
+  };
+
+  const handleRemovePassenger = (idx) => {
+    const updated = (editingService.pasajeros || []).filter((_, i) => i !== idx);
+    setEditingService({
+      ...editingService,
+      pasajeros: updated.length > 0 ? updated : [{ nombre_completo: '', documento_o_referencia: '' }]
+    });
   };
 
   const handleSaveModal = async (e) => {
@@ -321,7 +343,7 @@ export default function ServiciosPage() {
             title="Buscar y sincronizar nuevos vouchers, modificaciones y cancelaciones desde Gmail"
           >
             <RefreshCw className={`w-4 h-4 ${syncingGmail ? 'animate-spin' : ''}`} />
-            {syncingGmail ? 'Sincronizando correos (puede demorar)...' : 'Sincronizar Gmail'}
+            {syncingGmail ? 'Sincronizando...' : 'Sincronizar Gmail'}
           </button>
 
           {/* Botón Imprimir / PDF */}
@@ -337,7 +359,7 @@ export default function ServiciosPage() {
           {/* Botón Excel */}
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
             title="Descargar Planilla de Servicios Operativos en Excel (.xlsx)"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
@@ -553,6 +575,11 @@ export default function ServiciosPage() {
                       <div className="text-slate-500 truncate" title={`A: ${s.destino}`}>
                         <b>A:</b> {s.destino}
                       </div>
+                      {(s.destino_2 || s.origen_2) && (
+                        <div className="mt-1 pt-1 border-t border-slate-200 text-indigo-700 truncate" title={`2da Parada: De ${s.origen_2 || s.destino} A ${s.destino_2}`}>
+                          <b>2da Parada:</b> {s.origen_2 ? `${s.origen_2} ➔ ` : ''}{s.destino_2}
+                        </div>
+                      )}
                     </td>
                     <td className="px-2.5 py-2 text-[11px] text-slate-600">
                       <div className="truncate" title={s.vuelo_observacion || '-'}>
@@ -690,26 +717,123 @@ export default function ServiciosPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600">Origen</label>
-                <input
-                  type="text"
-                  required
-                  className="mt-1 w-full p-2 border border-slate-300 rounded text-sm"
-                  value={editingService.origen}
-                  onChange={(e) => setEditingService({ ...editingService, origen: e.target.value })}
-                />
+              {/* Origen y Destino Principal */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600">Origen (Tramo 1)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Aeropuerto / Hotel"
+                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={editingService.origen || ''}
+                    onChange={(e) => setEditingService({ ...editingService, origen: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600">Destino (Tramo 1 / 1er Domicilio)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Mendoza 454"
+                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={editingService.destino || ''}
+                    onChange={(e) => setEditingService({ ...editingService, destino: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600">Destino</label>
-                <input
-                  type="text"
-                  required
-                  className="mt-1 w-full p-2 border border-slate-300 rounded text-sm"
-                  value={editingService.destino}
-                  onChange={(e) => setEditingService({ ...editingService, destino: e.target.value })}
-                />
+              {/* 2da Parada / Tramo Adicional (Nuevo Origen y Nuevo Destino) */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    📍 2da Parada / Tramo Adicional (Opcional - Cuando viajan a 2 domicilios)
+                  </span>
+                  {(editingService.origen_2 || editingService.destino_2) && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingService({ ...editingService, origen_2: '', destino_2: '' })}
+                      className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer"
+                    >
+                      Limpiar 2do tramo
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500">Nuevo Origen (Tramo 2)</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Mendoza 454"
+                      className="mt-0.5 w-full p-2 border border-slate-300 rounded text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={editingService.origen_2 || ''}
+                      onChange={(e) => setEditingService({ ...editingService, origen_2: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500">Nuevo Destino (2do Domicilio)</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Guillermo Marconi 637, Bº Cabildo"
+                      className="mt-0.5 w-full p-2 border border-slate-300 rounded text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={editingService.destino_2 || ''}
+                      onChange={(e) => setEditingService({ ...editingService, destino_2: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección de Pasajeros */}
+              <div className="p-3.5 bg-blue-50/50 border border-blue-200 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-blue-700" />
+                    Pasajeros Asignados ({(editingService.pasajeros || []).length})
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddPassenger}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Agregar Pasajero
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {(editingService.pasajeros && editingService.pasajeros.length > 0 ? editingService.pasajeros : [{ nombre_completo: '', documento_o_referencia: '' }]).map((pax, pIdx) => (
+                    <div key={pIdx} className="flex items-center gap-2 bg-white p-2 border border-slate-200 rounded-lg shadow-2xs">
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          required
+                          placeholder="Nombre y Apellido del Pasajero"
+                          className="w-full p-1.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                          value={pax.nombre_completo || ''}
+                          onChange={(e) => handlePassengerChange(pIdx, 'nombre_completo', e.target.value)}
+                        />
+                      </div>
+                      <div className="w-40">
+                        <input
+                          type="text"
+                          placeholder="DNI / Referencia"
+                          className="w-full p-1.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                          value={pax.documento_o_referencia || ''}
+                          onChange={(e) => handlePassengerChange(pIdx, 'documento_o_referencia', e.target.value)}
+                        />
+                      </div>
+                      {(editingService.pasajeros || []).length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePassenger(pIdx)}
+                          className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer transition-colors"
+                          title="Eliminar pasajero"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div>
@@ -788,4 +912,3 @@ export default function ServiciosPage() {
     </div>
   );
 }
-

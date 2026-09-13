@@ -184,11 +184,13 @@ async function performSync(user, password, targetFolder, options = {}) {
                   await dbConnection.execute(
                     `UPDATE servicios SET
                       hora_servicio = ?, categoria_vehiculo = ?, origen = ?, destino = ?,
+                      origen_2 = ?, destino_2 = ?,
                       subtotal = ?, monto_espera = ?, total = ?,
                       vuelo_observacion = ?, observaciones_internas = ?
                     WHERE id = ?`,
                     [
                       srv.hora_servicio, srv.categoria_vehiculo, srv.origen, srv.destino,
+                      srv.origen_2 || null, srv.destino_2 || null,
                       subtotal, montoEspera, total,
                       srv.vuelo_observacion || subject,
                       `Modificado automáticamente el ${new Date().toLocaleDateString('es-AR')}`,
@@ -220,8 +222,9 @@ async function performSync(user, password, targetFolder, options = {}) {
                 periodoId = periodos[0].id;
               } else {
                 const fInicio = `${anio}-${String(mes).padStart(2, '0')}-${quincena === 1 ? '01' : '16'}`;
-                const lastDay = new Date(anio, mes, 0).getDate();
-                const fFin = `${anio}-${String(mes).padStart(2, '0')}-${quincena === 1 ? '15' : lastDay}`;
+                const fFin = quincena === 1 
+                  ? `${anio}-${String(mes).padStart(2, '0')}-15`
+                  : new Date(anio, mes, 0).toISOString().split('T')[0];
 
                 const [pRes] = await dbConnection.execute(
                   `INSERT INTO periodos_liquidacion (anio, mes, quincena, fecha_inicio, fecha_fin)
@@ -235,13 +238,16 @@ async function performSync(user, password, targetFolder, options = {}) {
                 `INSERT INTO servicios (
                   nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
                   fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
+                  origen_2, destino_2,
                   vuelo_observacion, subtotal, monto_espera, monto_adicionales, total,
                   estado_servicio, observaciones_internas
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   srv.nro_reserva, 1, periodoId, 1, 1,
                   srv.fecha_servicio, srv.hora_servicio || '00:00:00', srv.categoria_vehiculo || 'Auto Std',
-                  srv.origen || 'A definir', srv.destino || 'A definir', srv.vuelo_observacion || subject,
+                  srv.origen || 'A definir', srv.destino || 'A definir',
+                  srv.origen_2 || null, srv.destino_2 || null,
+                  srv.vuelo_observacion || subject,
                   subtotal, montoEspera, srv.monto_adicionales || 0, total,
                   'Confirmado', `Importado desde Gmail [MAAVYT]. Asunto: ${subject}`
                 ]

@@ -42,13 +42,27 @@ function createPoolConfig() {
 
 const pool = mysql.createPool(createPoolConfig());
 
-// Verificacion de conexion con registro de modo (Local / Cloud SSL)
+// Verificacion de conexion con registro de modo (Local / Cloud SSL) y auto-migración segura
 async function checkConnection() {
   try {
     const connection = await pool.getConnection();
     const isSsl = process.env.DB_SSL === 'true';
     const dbName = process.env.DB_NAME || 'maavyt_db';
-    console.log(`[Database] Conexi�n exitosa a MySQL: ${dbName} (SSL: ${isSsl ? 'Activado TLS' : 'Desactivado Local'})`);
+    console.log(`[Database] Conexión exitosa a MySQL: ${dbName} (SSL: ${isSsl ? 'Activado TLS' : 'Desactivado Local'})`);
+
+    // Auto-migración segura de columnas requeridas en producción
+    try {
+      const [cols] = await connection.execute('DESCRIBE servicios');
+      const hasOrigen2 = cols.some(c => c.Field === 'origen_2');
+      if (!hasOrigen2) {
+        console.log('[Database] Agregando columnas origen_2 y destino_2 a la tabla servicios...');
+        await connection.execute('ALTER TABLE servicios ADD COLUMN origen_2 VARCHAR(255) NULL AFTER destino, ADD COLUMN destino_2 VARCHAR(255) NULL AFTER origen_2');
+        console.log('[Database] ✅ Columnas origen_2 y destino_2 agregadas con éxito.');
+      }
+    } catch (migErr) {
+      console.warn('[Database] Nota al verificar columnas de servicios:', migErr.message);
+    }
+
     connection.release();
     return true;
   } catch (error) {

@@ -132,7 +132,8 @@ function generateHojaDeRutaPDF(servicios = [], metadata = {}) {
 
       // Renderizar Filas de Servicios
       servicios.forEach((s, idx) => {
-        const rowHeight = 28;
+        const hasSecondStop = Boolean(s.destino_2 || s.origen_2);
+        const rowHeight = hasSecondStop ? 34 : 28;
 
         // Salto de página antes de dibujar si se acerca al pie
         if (currentY + rowHeight > 540) {
@@ -158,32 +159,34 @@ function generateHojaDeRutaPDF(servicios = [], metadata = {}) {
 
         // 1. N° Servicio / Reserva
         doc.font('Helvetica-Bold').fontSize(8.5);
-        doc.text(s.nro_reserva || `#${s.id}`, x, currentY + 9, { width: colWidths.reserva - 8 });
+        doc.text(s.nro_reserva || `#${s.id}`, x, currentY + (hasSecondStop ? 11 : 9), { width: colWidths.reserva - 8 });
         x += colWidths.reserva;
 
         // 2. Fecha / Hora en Español (ej: Jue 03/09/2026)
         doc.font('Helvetica').fontSize(7.5);
         const fechaStr = formatFechaEspanol(s.fecha_servicio);
         const horaStr = (s.hora_servicio || '').substring(0, 5) ? `${(s.hora_servicio || '').substring(0, 5)} hs` : '';
-        doc.text(`${fechaStr}\n${horaStr}`, x, currentY + 5, { width: colWidths.fechaHora - 8 });
+        doc.text(`${fechaStr}\n${horaStr}`, x, currentY + 4, { width: colWidths.fechaHora - 8 });
         x += colWidths.fechaHora;
 
         // 3. Pasajeros
         const pnames = s.pasajeros_concatenados || s.pasajeros?.map(p => p.nombre_completo).join(' / ') || 'A definir';
-        doc.text(pnames, x, currentY + 5, { width: colWidths.pasajeros - 8, height: 20, ellipsis: true });
+        doc.text(pnames, x, currentY + 4, { width: colWidths.pasajeros - 8, height: hasSecondStop ? 26 : 20, ellipsis: true });
         x += colWidths.pasajeros;
 
-        // 4. Origen
-        doc.text(s.origen || '-', x, currentY + 5, { width: colWidths.origen - 8, height: 20, ellipsis: true });
+        // 4. Origen (con soporte para 2da parada)
+        const origText = s.origen_2 ? `1) ${s.origen || '-'}\n2) ${s.origen_2}` : (s.origen || '-');
+        doc.text(origText, x, currentY + 4, { width: colWidths.origen - 8, height: hasSecondStop ? 26 : 20, ellipsis: true });
         x += colWidths.origen;
 
-        // 5. Destino
-        doc.text(s.destino || '-', x, currentY + 5, { width: colWidths.destino - 8, height: 20, ellipsis: true });
+        // 5. Destino (con soporte para 2da parada)
+        const destText = s.destino_2 ? `1) ${s.destino || '-'}\n2) ${s.destino_2}` : (s.destino || '-');
+        doc.text(destText, x, currentY + 4, { width: colWidths.destino - 8, height: hasSecondStop ? 26 : 20, ellipsis: true });
         x += colWidths.destino;
 
         // 6. Observaciones
         const obs = s.vuelo_observacion || s.detalle_espera || '-';
-        doc.text(obs, x, currentY + 5, { width: colWidths.observaciones - 8, height: 20, ellipsis: true });
+        doc.text(obs, x, currentY + 4, { width: colWidths.observaciones - 8, height: hasSecondStop ? 26 : 20, ellipsis: true });
 
         currentY += rowHeight;
       });

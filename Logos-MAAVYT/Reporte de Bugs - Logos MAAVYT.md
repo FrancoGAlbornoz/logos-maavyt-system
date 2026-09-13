@@ -57,6 +57,28 @@
 
 ---
 
+### 🟢 REQ-004: Soporte de 2da Parada (Origen 2 y Destino 2) y Gestión de Pasajeros en Edición e Ingesta
+* **Fecha de Implementación**: 13/09/2026
+* **Descripción de la Necesidad**:
+  - En reservas corporativas con múltiples pasajeros que van a dos direcciones distintas (ej. reserva `#231859` y `#231867`), el servicio se compone de 2 tramos o paradas.
+  - Se requería agregar en el modal de Edición y Alta los 2 campos: **Nuevo Origen (Tramo 2)** y **Nuevo Destino (2do Domicilio)**.
+  - Además, faltaba en el modal de edición la visualización y administración de los nombres de los pasajeros, y en la ingesta el parser tomaba nombres incorrectos por desfasaje de columnas de la tabla del cliente (`Estado`, `Unidad`, `Nombre Unidad`, etc.).
+* **Solución Implementada**:
+  - **Base de Datos**: Migración en MySQL añadiendo `origen_2 VARCHAR(255) NULL` y `destino_2 VARCHAR(255) NULL` a la tabla `servicios`.
+  - **Parser Inteligente (`textParserService.js`)**:
+    - Detección dinámica de cabeceras en tablas HTML y de texto.
+    - Reconocimiento automático de filas subordinadas (segundas paradas con N° Res en blanco) asociando su origen y destino como `origen_2` y `destino_2` de la reserva principal.
+    - Separación precisa de pasajeros múltiples delimitados por comas `,` (ej. `"GIRAUDO DE CEJAS CYNTHIA VANINA, BASBUS CLAUDIO DANIEL"` -> 2 pasajeros independientes).
+  - **Controladores y Modelos (`serviciosController.js`, `gmailService.js`, `parserController.js`)**:
+    - Soporte completo de persistencia para `origen_2`, `destino_2` y guardado/actualización de la relación con la tabla `pasajeros`.
+  - **Interfaz de Usuario (`ServiciosPage.jsx` e `IngestaPage.jsx`)**:
+    - Modal de Edición y Alta Manual: Sección de 2da Parada (Nuevo Origen y Nuevo Destino) y panel de Pasajeros Asignados (`Nombre completo`, `DNI / Referencia`, botón para agregar y eliminar pasajeros).
+    - Visualización en grilla: El 2do tramo se muestra destacado en la columna de Origen / Destino cuando existe.
+  - **Exportaciones PDF y Excel**:
+    - Impresión en PDF y Planilla Excel formateadas para reflejar claramente ambos tramos cuando aplique.
+
+---
+
 ## 🗓️ Hoja de Ruta de Trabajo para Mañana
 
 ### 1. 🗄️ Normalización de la Base de Datos (Hasta 3FN)

@@ -92,6 +92,8 @@ CREATE TABLE IF NOT EXISTS servicios (
     categoria_vehiculo ENUM('Auto Std', 'Auto', 'Ejecutivo', 'Van', 'Minibus') NOT NULL DEFAULT 'Auto Std',
     origen VARCHAR(255) NOT NULL,
     destino VARCHAR(255) NOT NULL,
+    origen_2 VARCHAR(255) NULL, -- Tramo adicional / 2da parada
+    destino_2 VARCHAR(255) NULL, -- Destino adicional / 2do domicilio
     vuelo_observacion VARCHAR(255) NULL, -- Ej: 'AR 1476', 'CM 745', 'SALE 09:30', 'CARTEL PFIZER'
     
     -- Estados Operativos

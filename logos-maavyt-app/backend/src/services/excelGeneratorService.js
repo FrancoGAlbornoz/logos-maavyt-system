@@ -251,8 +251,8 @@ async function generateServiciosOperativosExcel(servicios = [], metadata = {}) {
       fechaStr,
       horaStr ? `${horaStr} hs` : '',
       pnames,
-      s.origen || '',
-      s.destino || '',
+      s.origen_2 ? `1) ${s.origen || ''} | 2) ${s.origen_2}` : (s.origen || ''),
+      s.destino_2 ? `1) ${s.destino || ''} | 2) ${s.destino_2}` : (s.destino || ''),
       s.vuelo_observacion || s.detalle_espera || '-'
     ]);
 

@@ -13,7 +13,7 @@ async function getServiciosOperativosPDF(req, res, next) {
     let query = `
       SELECT 
         s.id, s.nro_reserva, s.fecha_servicio, s.hora_servicio, s.categoria_vehiculo,
-        s.origen, s.destino, s.vuelo_observacion, s.detalle_espera, s.estado_servicio,
+        s.origen, s.destino, s.origen_2, s.destino_2, s.vuelo_observacion, s.detalle_espera, s.estado_servicio,
         GROUP_CONCAT(
           CASE 
             WHEN p.documento_o_referencia IS NOT NULL AND p.documento_o_referencia != '' 
@@ -75,7 +75,7 @@ async function getServiciosOperativosExcel(req, res, next) {
     let query = `
       SELECT 
         s.id, s.nro_reserva, s.fecha_servicio, s.hora_servicio, s.categoria_vehiculo,
-        s.origen, s.destino, s.vuelo_observacion, s.detalle_espera, s.estado_servicio,
+        s.origen, s.destino, s.origen_2, s.destino_2, s.vuelo_observacion, s.detalle_espera, s.estado_servicio,
         GROUP_CONCAT(
           CASE 
             WHEN p.documento_o_referencia IS NOT NULL AND p.documento_o_referencia != '' 

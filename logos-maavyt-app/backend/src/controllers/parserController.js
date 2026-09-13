@@ -53,9 +53,10 @@ async function importVouchers(req, res, next) {
         `INSERT INTO servicios (
           nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
           fecha_servicio, hora_servicio, categoria_vehiculo, origen, destino,
+          origen_2, destino_2,
           vuelo_observacion, subtotal, monto_espera, monto_adicionales, total,
           estado_servicio, observaciones_internas
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           item.nro_reserva || 'S/N',
           cliente_id || item.cliente_id || 1, // Default 1 (Logos Travel)
@@ -67,6 +68,8 @@ async function importVouchers(req, res, next) {
           item.categoria_vehiculo || 'Auto Std',
           item.origen || 'A definir',
           item.destino || 'A definir',
+          item.origen_2 || null,
+          item.destino_2 || null,
           item.vuelo_observacion || null,
           item.subtotal || 0,
           item.monto_espera || 0,

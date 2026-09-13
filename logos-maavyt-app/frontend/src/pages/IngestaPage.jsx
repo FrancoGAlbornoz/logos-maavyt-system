@@ -297,6 +297,47 @@ export default function IngestaPage({ onImportSuccess }) {
                   </div>
                 </div>
 
+                {/* 2da Parada / Tramo Adicional */}
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">📍 2da Parada / Tramo Adicional (Opcional)</span>
+                    {(item.origen_2 || item.destino_2) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleItemChange(idx, 'origen_2', '');
+                          handleItemChange(idx, 'destino_2', '');
+                        }}
+                        className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer"
+                      >
+                        Limpiar 2do tramo
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500">Nuevo Origen (Tramo 2)</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Mendoza 454"
+                        className="mt-0.5 w-full p-2 border border-slate-300 rounded text-sm bg-white"
+                        value={item.origen_2 || ''}
+                        onChange={(e) => handleItemChange(idx, 'origen_2', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500">Nuevo Destino (2do Domicilio)</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Guillermo Marconi 637, Bº Cabildo"
+                        className="mt-0.5 w-full p-2 border border-slate-300 rounded text-sm bg-white"
+                        value={item.destino_2 || ''}
+                        onChange={(e) => handleItemChange(idx, 'destino_2', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Pasajeros */}
                 <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                   <div className="flex items-center justify-between mb-2">
