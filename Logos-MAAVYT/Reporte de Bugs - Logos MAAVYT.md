@@ -79,6 +79,18 @@
 
 ---
 
+### 🔴 BUG-004: Error de valor de fecha ISO al guardar edición de servicio en MySQL estricto
+* **Fecha de Detección**: 13/09/2026
+* **Descripción del Síntoma**:
+  - Al abrir el modal de edición de un servicio y pulsar "Guardar Servicio", la API arrojaba un error 500: `Incorrect date value: '2026-09-03T00:00:00.000Z' for column 'fecha_servicio' at row 1`.
+* **Causa Raíz**:
+  - Al consultar el servicio por ID, MySQL devolvía `fecha_servicio` como objeto Date serializado en formato ISO completo (`YYYY-MM-DDTHH:mm:ss.sssZ`). Si el usuario no modificaba el campo de fecha, ese string completo se enviaba de vuelta en el body del PUT, y el motor MySQL en modo estricto rechazaba el valor para la columna de tipo `DATE`.
+* **Acción de Corrección Aplicada**:
+  - **Backend (`serviciosController.js`)**: Se implementaron funciones `sanitizeDate` y `sanitizeTime` para asegurar que `fecha_servicio` se trunque limpiamente al formato `YYYY-MM-DD` tanto al responder el detalle como antes de ejecutar los `INSERT` y `UPDATE`.
+  - **Frontend (`ServiciosPage.jsx`)**: Se normalizó `fecha_servicio` en `openEditModal` y en el payload de `handleSaveModal` asegurando que siempre viaje como `YYYY-MM-DD`.
+
+---
+
 ## 🗓️ Hoja de Ruta de Trabajo para Mañana
 
 ### 1. 🗄️ Normalización de la Base de Datos (Hasta 3FN)
