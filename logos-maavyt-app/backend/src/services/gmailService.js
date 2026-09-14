@@ -174,8 +174,8 @@ async function performSync(user, password, targetFolder, options = {}) {
               }
 
               const [existing] = await dbConnection.execute(
-                `SELECT id FROM servicios WHERE nro_reserva = ? AND fecha_servicio = ?`,
-                [srv.nro_reserva, srv.fecha_servicio]
+                `SELECT id FROM servicios WHERE nro_reserva = ?`,
+                [srv.nro_reserva]
               );
 
               if (existing.length > 0) {
@@ -183,13 +183,13 @@ async function performSync(user, password, targetFolder, options = {}) {
                   const srvId = existing[0].id;
                   await dbConnection.execute(
                     `UPDATE servicios SET
-                      hora_servicio = ?, categoria_vehiculo = ?, origen = ?, destino = ?,
+                      fecha_servicio = ?, hora_servicio = ?, categoria_vehiculo = ?, origen = ?, destino = ?,
                       origen_2 = ?, destino_2 = ?,
                       subtotal = ?, monto_espera = ?, total = ?,
                       vuelo_observacion = ?, observaciones_internas = ?
                     WHERE id = ?`,
                     [
-                      srv.hora_servicio, srv.categoria_vehiculo, srv.origen, srv.destino,
+                      srv.fecha_servicio, srv.hora_servicio, srv.categoria_vehiculo, srv.origen, srv.destino,
                       srv.origen_2 || null, srv.destino_2 || null,
                       subtotal, montoEspera, total,
                       srv.vuelo_observacion || subject,

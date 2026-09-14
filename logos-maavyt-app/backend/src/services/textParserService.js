@@ -101,16 +101,16 @@ function parseHtmlTable(htmlBody) {
     const cells = tdMatches.map(td => cleanHtmlTags(td));
 
     // Identificar fila de encabezado
-    const isHeaderRow = cells.some(c => /n[°º]?\s*res|categ|origen|destino|pasajero/i.test(c));
+    const isHeaderRow = cells.some(c => /n(?:ro|°|º|\.)?\s*res|reserva|categ|origen|destino|pasajero/i.test(c));
     if (isHeaderRow) {
       headerMap = {
-        nro_reserva: cells.findIndex(c => /n[°º]?\s*res/i.test(c)),
-        categoria: cells.findIndex(c => /categ/i.test(c)),
-        fecha: cells.findIndex(c => /fecha/i.test(c)),
+        nro_reserva: cells.findIndex(c => /n(?:ro|°|º|\.)?\s*res|reserva|servicio/i.test(c)),
+        categoria: cells.findIndex(c => /categ|veh[ií]culo|unidad/i.test(c)),
+        fecha: cells.findIndex(c => /fecha|d[ií]a/i.test(c)),
         hora: cells.findIndex(c => /hora|hs/i.test(c)),
         origen: cells.findIndex(c => /origen|desde|pickup/i.test(c)),
         destino: cells.findIndex(c => /destino|hasta|dropoff/i.test(c)),
-        pasajeros: cells.findIndex(c => /pasajero/i.test(c) || (/pax/i.test(c) && !/#|cant/i.test(c))),
+        pasajeros: cells.findIndex(c => /pasajero/i.test(c) || (/pax/i.test(c) && !/(?:#|cant)/i.test(c))),
         observacion: cells.findIndex(c => /vuelo|obs/i.test(c))
       };
       continue;
@@ -129,6 +129,16 @@ function parseHtmlTable(htmlBody) {
       if (headerMap.nro_reserva !== -1 && cells[headerMap.nro_reserva]) {
         const m = cells[headerMap.nro_reserva].match(/\b\d{5,7}(?:-[A-Z0-9]+)?\b/);
         if (m) nro_reserva = m[0];
+      }
+      // Fallback robusto: si nro_reserva sigue vacío, buscar en las primeras 3 celdas un número de 5 a 7 dígitos
+      if (!nro_reserva) {
+        for (let c = 0; c < Math.min(3, cells.length); c++) {
+          const match = cells[c]?.match(/\b\d{5,7}(?:-[A-Z0-9]+)?\b/);
+          if (match) {
+            nro_reserva = match[0];
+            break;
+          }
+        }
       }
       if (headerMap.categoria !== -1) categoria = cells[headerMap.categoria] || 'Auto Std';
       if (headerMap.fecha !== -1) rawFecha = cells[headerMap.fecha] || '';
@@ -292,6 +302,65 @@ function parseTabularText(rawText) {
     }
   }
 
+  if (services.length === 0) {
+    // Escaneo de tablas en texto plano donde cada celda está en su propia línea
+    let i = 0;
+    while (i < lines.length) {
+      const m = lines[i].match(/^\b(\d{5,7}(?:-[A-Z0-9]+)?)\b$/);
+      if (m && i + 5 < lines.length) {
+        const nro_reserva = m[1];
+        let offset = 1;
+        let categoria = 'Auto Std';
+        if (i + offset < lines.length && /(?:Auto|Van|Minibus|Ejecutivo)/i.test(lines[i + offset])) {
+          categoria = lines[i + offset];
+          offset++;
+        }
+        let rawFecha = '';
+        if (i + offset < lines.length && /\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4}/.test(lines[i + offset])) {
+          rawFecha = lines[i + offset];
+          offset++;
+        }
+        let rawHora = '00:00';
+        if (i + offset < lines.length && /\d{1,2}:\d{2}/.test(lines[i + offset])) {
+          rawHora = lines[i + offset];
+          offset++;
+        }
+        const origen = lines[i + offset] || 'A definir';
+        offset++;
+        const destino = lines[i + offset] || 'A definir';
+        offset++;
+        const rawPasajeros = lines[i + offset] || '';
+        offset++;
+        let obs = '';
+        if (i + offset < lines.length && !/^\d{5,7}\b/.test(lines[i + offset]) && !/SOLICITUD|CONFIRMACION|SALUDOS/i.test(lines[i + offset])) {
+          obs = lines[i + offset];
+          offset++;
+        }
+
+        services.push({
+          nro_reserva,
+          fecha_servicio: formatToISODate(rawFecha),
+          hora_servicio: formatToISOTime(rawHora),
+          categoria_vehiculo: normalizeCategoria(categoria),
+          origen,
+          destino,
+          origen_2: null,
+          destino_2: null,
+          vuelo_observacion: obs || null,
+          subtotal: 0,
+          monto_espera: 0,
+          monto_adicionales: 0,
+          total: 0,
+          pasajeros: parsePasajerosString(rawPasajeros)
+        });
+
+        i += offset;
+        continue;
+      }
+      i++;
+    }
+  }
+
   return services;
 }
 
@@ -430,7 +499,7 @@ function parsePasajerosString(rawPasajeros) {
   for (const p of candidateParts) {
     const cleaned = p.trim();
     if (cleaned && cleaned.length > 2 && !/^(ASIGNADO|\d+|AUTO|AUTO STD|UNIDAD)$/i.test(cleaned)) {
-      const dniMatch = cleaned.match(/(?:DNI|DOC|REF)[:\s]*([\d\.]+)/i);
+      const dniMatch = cleaned.match(/(?:DNI|DOC|REF)[:\s]*([\d\.]+)/i) || cleaned.match(/^([\d]{7,8})\s*[-–]\s*/);
       const doc = dniMatch ? dniMatch[1].replace(/\./g, '') : null;
       const name = dniMatch ? cleaned.replace(dniMatch[0], '').replace(/^[\s\-\:]+/, '').trim() : cleaned;
 
