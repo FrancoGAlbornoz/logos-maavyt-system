@@ -54,7 +54,7 @@ export default function App() {
         onLogout={handleLogout} 
       />
       
-      <main className="flex-1 w-full max-w-[1600px] mx-auto px-3 sm:px-6 py-4">
+      <main className="flex-1 w-full max-w-none px-2 sm:px-4 py-3">
         <ErrorBoundary>
           {activeTab === 'ingesta' && (
             <IngestaPage onImportSuccess={() => setActiveTab('servicios')} />

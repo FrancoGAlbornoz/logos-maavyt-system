@@ -556,14 +556,14 @@ export default function ServiciosPage() {
             <table className="w-full table-fixed text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
-                  <th className="w-[100px] px-2.5 py-2.5">Fecha / Hora</th>
-                  <th className="w-[75px] px-2.5 py-2.5">Reserva</th>
-                  <th className="w-[16%] px-2.5 py-2.5">Pasajeros</th>
-                  <th className="w-[28%] px-2.5 py-2.5">Origen / Destino</th>
-                  <th className="w-[18%] px-2.5 py-2.5">Vuelo / Obs</th>
+                  <th className="w-[90px] px-2.5 py-2.5">Fecha / Hora</th>
+                  <th className="w-[65px] px-2.5 py-2.5">Reserva</th>
+                  <th className="w-[26%] px-2.5 py-2.5">Pasajeros</th>
+                  <th className="w-[36%] px-2.5 py-2.5">Origen / Destino</th>
+                  <th className="w-[10%] px-2.5 py-2.5">Vuelo / Obs</th>
                   <th className="w-[85px] px-2.5 py-2.5 text-right">Total ($)</th>
-                  <th className="w-[115px] px-2 py-2.5 text-center">Estado</th>
-                  <th className="w-[75px] px-2 py-2.5 text-center">Acciones</th>
+                  <th className="w-[110px] px-2 py-2.5 text-center">Estado</th>
+                  <th className="w-[65px] px-2 py-2.5 text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -577,19 +577,19 @@ export default function ServiciosPage() {
                       {s.nro_reserva}
                     </td>
                     <td className="px-2.5 py-2">
-                      <span className="font-medium text-slate-800 block truncate" title={s.pasajeros_concatenados || 'A definir'}>
+                      <span className="font-medium text-slate-800 block break-words whitespace-normal">
                         {s.pasajeros_concatenados || 'A definir'}
                       </span>
                     </td>
                     <td className="px-2.5 py-2 text-[11px]">
-                      <div className="font-medium text-slate-800 truncate" title={`De: ${s.origen}`}>
+                      <div className="font-medium text-slate-800 break-words whitespace-normal">
                         <b>De:</b> {s.origen}
                       </div>
-                      <div className="text-slate-500 truncate" title={`A: ${s.destino}`}>
+                      <div className="text-slate-500 break-words whitespace-normal">
                         <b>A:</b> {s.destino}
                       </div>
                       {(s.destino_2 || s.origen_2) && (
-                        <div className="mt-1 pt-1 border-t border-slate-200 text-indigo-700 truncate" title={`2da Parada: De ${s.origen_2 || s.destino} A ${s.destino_2}`}>
+                        <div className="mt-1 pt-1 border-t border-slate-200 text-indigo-700 break-words whitespace-normal">
                           <b>2da Parada:</b> {s.origen_2 ? `${s.origen_2} ➔ ` : ''}{s.destino_2}
                         </div>
                       )}
