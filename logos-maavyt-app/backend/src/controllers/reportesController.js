@@ -25,6 +25,7 @@ async function getServiciosOperativosPDF(req, res, next) {
       FROM servicios s
       LEFT JOIN pasajeros p ON s.id = p.servicio_id
       WHERE s.deleted_at IS NULL
+        AND s.estado_servicio != 'Cancelado'
     `;
 
     const params = [];
@@ -37,7 +38,7 @@ async function getServiciosOperativosPDF(req, res, next) {
       query += ` AND s.fecha_servicio <= ?`;
       params.push(fecha_hasta);
     }
-    if (estado) {
+    if (estado && estado !== 'Cancelado') {
       query += ` AND s.estado_servicio = ?`;
       params.push(estado);
     }

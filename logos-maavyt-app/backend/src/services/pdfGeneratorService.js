@@ -45,7 +45,7 @@ function formatFechaEspanol(dateVal) {
 /**
  * Genera la Hoja de Servicios Operativos en PDF formato A4 Horizontal (Landscape)
  * optimizada para impresión y despacho.
- * Columnas requeridas: N° Servicio, Fecha/Hora, Pasajeros, Origen, Destino y Observaciones.
+ * Columnas requeridas: N° Servicio, Fecha/Hora, Pasajeros, Origen, Destino.
  * @param {Array<Object>} servicios Lista de servicios a incluir
  * @param {Object} metadata Datos contextuales (rangeLabel, conductor, etc.)
  * @returns {Promise<Buffer>} Buffer del documento PDF
@@ -74,14 +74,13 @@ function generateHojaDeRutaPDF(servicios = [], metadata = {}) {
       const startX = 30;
       const contentWidth = 781;
 
-      // Anchos exactos para las 6 columnas solicitadas (Suma = 781 pt)
+      // Anchos para las 5 columnas optimizadas sin observaciones (Suma = 781 pt)
       const colWidths = {
-        reserva: 70,       // N° Servicio / Reserva
-        fechaHora: 80,     // Fecha / Hora
-        pasajeros: 155,    // Pasajeros
-        origen: 165,       // Origen
-        destino: 165,      // Destino
-        observaciones: 146 // Observaciones / Vuelo
+        reserva: 75,    // N° Servicio / Reserva
+        fechaHora: 86,  // Fecha / Hora
+        pasajeros: 180, // Pasajeros
+        origen: 220,    // Origen
+        destino: 220    // Destino
       };
 
       const now = new Date();
@@ -121,9 +120,6 @@ function generateHojaDeRutaPDF(servicios = [], metadata = {}) {
         x += colWidths.origen;
 
         doc.text('DESTINO', x, headerY + 6);
-        x += colWidths.destino;
-
-        doc.text('OBSERVACIONES', x, headerY + 6);
 
         return headerY + 22;
       };
@@ -182,11 +178,6 @@ function generateHojaDeRutaPDF(servicios = [], metadata = {}) {
         // 5. Destino (con soporte para 2da parada)
         const destText = s.destino_2 ? `1) ${s.destino || '-'}\n2) ${s.destino_2}` : (s.destino || '-');
         doc.text(destText, x, currentY + 4, { width: colWidths.destino - 8, height: hasSecondStop ? 26 : 20, ellipsis: true });
-        x += colWidths.destino;
-
-        // 6. Observaciones
-        const obs = s.vuelo_observacion || s.detalle_espera || '-';
-        doc.text(obs, x, currentY + 4, { width: colWidths.observaciones - 8, height: hasSecondStop ? 26 : 20, ellipsis: true });
 
         currentY += rowHeight;
       });
