@@ -632,11 +632,19 @@ export default function ServiciosPage() {
                       <div className="font-bold text-slate-900">
                         ${Number(s.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </div>
-                      {(Number(s.monto_espera) > 0 || s.detalle_espera) && (
-                        <div className="text-[10px] text-indigo-600 font-medium truncate max-w-[120px] ml-auto" title={`${s.detalle_espera || 'Espera'}: $${Number(s.monto_espera || 0).toLocaleString('es-AR')}`}>
-                          +{s.detalle_espera ? `${s.detalle_espera} ` : ''}(${Number(s.monto_espera || 0).toLocaleString('es-AR')})
-                        </div>
-                      )}
+                      {(() => {
+                        const extraMonto = (Number(s.monto_espera) || 0) + (Number(s.monto_adicionales) || 0);
+                        if (extraMonto <= 0 && !s.detalle_espera) return null;
+                        return (
+                          <div
+                            className="text-[10px] text-indigo-600 font-semibold truncate max-w-[140px] ml-auto"
+                            title={`${s.detalle_espera || 'Adicional'}: $${extraMonto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                          >
+                            +{s.detalle_espera ? `${s.detalle_espera} ` : ''}
+                            {extraMonto > 0 ? `($${extraMonto.toLocaleString('es-AR', { minimumFractionDigits: 0 })})` : ''}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-2 py-2 text-center">
                       {!viewArchived ? (
@@ -944,7 +952,7 @@ export default function ServiciosPage() {
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600">Importe Espera ($)</label>
+                    <label className="block text-xs font-semibold text-slate-600">Importe Espera / Peaje ($)</label>
                     <input
                       type="number"
                       step="0.01"
