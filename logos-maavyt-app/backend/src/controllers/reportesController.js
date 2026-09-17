@@ -88,6 +88,7 @@ async function getServiciosOperativosExcel(req, res, next) {
       FROM servicios s
       LEFT JOIN pasajeros p ON s.id = p.servicio_id
       WHERE s.deleted_at IS NULL
+        AND s.estado_servicio != 'Cancelado'
     `;
 
     const params = [];
@@ -100,7 +101,7 @@ async function getServiciosOperativosExcel(req, res, next) {
       query += ` AND s.fecha_servicio <= ?`;
       params.push(fecha_hasta);
     }
-    if (estado) {
+    if (estado && estado !== 'Cancelado') {
       query += ` AND s.estado_servicio = ?`;
       params.push(estado);
     }
@@ -139,17 +140,18 @@ async function getHojaDeRutaPDF(req, res, next) {
  */
 async function getLiquidacionExcel(req, res, next) {
   try {
-    const { periodo_id } = req.query;
+    const { periodo_id, fecha_desde, fecha_hasta } = req.query;
 
     let query = `
       SELECT 
         s.id, s.nro_reserva, s.fecha_servicio, s.hora_servicio, s.categoria_vehiculo,
-        s.origen, s.destino, s.subtotal, s.monto_espera, s.monto_adicionales, s.total,
-        s.estado_servicio,
+        s.origen, s.destino, s.origen_2, s.destino_2, s.subtotal, s.detalle_espera,
+        s.monto_espera, s.monto_adicionales, s.total, s.estado_servicio,
         GROUP_CONCAT(p.nombre_completo SEPARATOR ' / ') AS pasajeros_concatenados
       FROM servicios s
       LEFT JOIN pasajeros p ON s.id = p.servicio_id
-      WHERE 1=1
+      WHERE s.deleted_at IS NULL
+        AND s.estado_servicio != 'Cancelado'
     `;
 
     const params = [];
@@ -157,6 +159,14 @@ async function getLiquidacionExcel(req, res, next) {
     if (periodo_id) {
       query += ` AND s.periodo_id = ?`;
       params.push(periodo_id);
+    }
+    if (fecha_desde) {
+      query += ` AND s.fecha_servicio >= ?`;
+      params.push(fecha_desde);
+    }
+    if (fecha_hasta) {
+      query += ` AND s.fecha_servicio <= ?`;
+      params.push(fecha_hasta);
     }
 
     query += ` GROUP BY s.id ORDER BY s.fecha_servicio ASC, s.hora_servicio ASC`;

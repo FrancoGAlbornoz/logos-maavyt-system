@@ -36,14 +36,14 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
   };
 
   // 1. Título
-  worksheet.mergeCells('A1:K1');
+  worksheet.mergeCells('A1:J1');
   const titleCell = worksheet.getCell('A1');
   titleCell.value = 'LOGOS TRAVEL / MAAVYT - PLANILLA DE LIQUIDACION QUINCENAL';
   titleCell.style = titleStyle;
   worksheet.getRow(1).height = 35;
 
   // 2. Información del Período
-  worksheet.mergeCells('A2:K2');
+  worksheet.mergeCells('A2:J2');
   const subTitleCell = worksheet.getCell('A2');
   subTitleCell.value = `Período: ${periodoInfo.periodo_nombre || 'Quincenal'} | Fecha de Generación: ${new Date().toLocaleDateString('es-AR')}`;
   subTitleCell.font = { name: 'Calibri', size: 11, italic: true };
@@ -61,10 +61,9 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
     'ORIGEN',
     'DESTINO',
     'SUBTOTAL',
-    'ESPERAS ($)',
-    'ADICIONALES ($)',
-    'TOTAL ($)',
-    'ESTADO'
+    'ESTADO / ESPERA',
+    'IMPORTE',
+    'TOTAL'
   ];
 
   const headerRow = worksheet.addRow(headers);
@@ -79,25 +78,40 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
 
   servicios.forEach((s) => {
     const pnames = s.pasajeros_concatenados || s.pasajeros?.map(p => p.nombre_completo).join(' / ') || 'PAX';
+    
+    let origText = s.origen || '';
+    if (s.origen_2) origText += ` / ${s.origen_2}`;
+    let destText = s.destino || '';
+    if (s.destino_2) destText += ` / ${s.destino_2}`;
+
+    const sub = Number(s.subtotal) || 0;
+    const importe = (Number(s.monto_espera) || 0) + (Number(s.monto_adicionales) || 0);
+    const tot = Number(s.total) || (sub + importe);
+
+    let estadoEspera = s.detalle_espera || '';
+    if (s.estado_servicio === 'No Show') {
+      estadoEspera = estadoEspera ? `No Show (${estadoEspera})` : 'No Show';
+    } else if (!estadoEspera) {
+      estadoEspera = '-';
+    }
+
     const row = worksheet.addRow([
-      s.fecha_servicio ? new Date(s.fecha_servicio).toLocaleDateString('es-AR') : '',
+      s.fecha_servicio ? formatFechaEspanol(s.fecha_servicio) : '',
       s.nro_reserva || 'S/N',
       pnames,
       s.categoria_vehiculo || 'Auto Std',
-      s.origen || '',
-      s.destino || '',
-      Number(s.subtotal) || 0,
-      Number(s.monto_espera) || 0,
-      Number(s.monto_adicionales) || 0,
-      Number(s.total) || 0,
-      s.estado_servicio || 'Confirmado'
+      origText,
+      destText,
+      sub,
+      estadoEspera,
+      importe,
+      tot
     ]);
 
     row.height = 20;
 
-    // Formatear Números de Moneda
+    // Formatear Números de Moneda (Col 7: SUBTOTAL, Col 9: IMPORTE, Col 10: TOTAL)
     row.getCell(7).numberFormat = currencyFormat;
-    row.getCell(8).numberFormat = currencyFormat;
     row.getCell(9).numberFormat = currencyFormat;
     row.getCell(10).numberFormat = currencyFormat;
 
@@ -105,7 +119,7 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
     row.getCell(1).alignment = { horizontal: 'center' };
     row.getCell(2).alignment = { horizontal: 'center' };
     row.getCell(4).alignment = { horizontal: 'center' };
-    row.getCell(11).alignment = { horizontal: 'center' };
+    row.getCell(8).alignment = { horizontal: 'center' };
 
     // Bordes
     row.eachCell((cell) => {
@@ -128,10 +142,9 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
       '',
       '',
       { formula: `SUM(G${startRowIndex}:G${endRowIndex})` },
-      { formula: `SUM(H${startRowIndex}:H${endRowIndex})` },
+      '',
       { formula: `SUM(I${startRowIndex}:I${endRowIndex})` },
-      { formula: `SUM(J${startRowIndex}:J${endRowIndex})` },
-      ''
+      { formula: `SUM(J${startRowIndex}:J${endRowIndex})` }
     ]);
 
     totalRow.height = 24;
@@ -144,7 +157,7 @@ async function generateLiquidacionExcel(servicios = [], periodoInfo = {}) {
         top: { style: 'medium', color: { argb: 'FF1E293B' } },
         bottom: { style: 'double', color: { argb: 'FF1E293B' } }
       };
-      if (colNumber >= 7 && colNumber <= 10) {
+      if (colNumber === 7 || colNumber === 9 || colNumber === 10) {
         cell.numberFormat = currencyFormat;
       }
     });

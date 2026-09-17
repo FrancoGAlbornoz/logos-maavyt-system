@@ -177,6 +177,13 @@ async function createServicio(req, res, next) {
     const cleanFecha = sanitizeDate(fecha_servicio) || new Date().toISOString().split('T')[0];
     const cleanHora = sanitizeTime(hora_servicio);
 
+    const sub = Number(subtotal) || 0;
+    const esp = Number(monto_espera) || 0;
+    const adc = Number(monto_adicionales) || 0;
+    const finalTotal = total != null && !isNaN(Number(total)) && Number(total) > 0 
+      ? Number(total) 
+      : (sub + esp + adc);
+
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -189,11 +196,11 @@ async function createServicio(req, res, next) {
         monto_adicionales, total, estado_servicio, observaciones_internas
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        nro_reserva || 'S/N', cliente_id || 1, periodo_id || 1, conductor_id || 1, vehiculo_id || 1,
+        nro_reserva || 'S/N', cliente_id ?? 1, periodo_id ?? 1, conductor_id ?? 1, vehiculo_id ?? 1,
         cleanFecha, cleanHora, categoria_vehiculo || 'Auto Std',
-        origen, destino, origen_2 || null, destino_2 || null,
-        vuelo_observacion || null, subtotal || 0, minutos_espera || 0,
-        detalle_espera || null, monto_espera || 0, monto_adicionales || 0, total || 0,
+        origen || '', destino || '', origen_2 || null, destino_2 || null,
+        vuelo_observacion || null, sub, Number(minutos_espera) || 0,
+        detalle_espera || null, esp, adc, finalTotal,
         estado_servicio || 'Confirmado', observaciones_internas || null
       ]
     );
@@ -202,11 +209,13 @@ async function createServicio(req, res, next) {
 
     if (Array.isArray(pasajeros) && pasajeros.length > 0) {
       for (const pax of pasajeros) {
-        await connection.execute(
-          `INSERT INTO pasajeros (servicio_id, nombre_completo, documento_o_referencia, telefono)
-           VALUES (?, ?, ?, ?)`,
-          [servicioId, pax.nombre_completo, pax.documento_o_referencia || null, pax.telefono || null]
-        );
+        if (pax.nombre_completo && pax.nombre_completo.trim()) {
+          await connection.execute(
+            `INSERT INTO pasajeros (servicio_id, nombre_completo, documento_o_referencia, telefono)
+             VALUES (?, ?, ?, ?)`,
+            [servicioId, pax.nombre_completo.trim(), pax.documento_o_referencia || null, pax.telefono || null]
+          );
+        }
       }
     }
 
@@ -241,6 +250,13 @@ async function updateServicio(req, res, next) {
     const cleanFecha = sanitizeDate(fecha_servicio) || new Date().toISOString().split('T')[0];
     const cleanHora = sanitizeTime(hora_servicio);
 
+    const sub = Number(subtotal) || 0;
+    const esp = Number(monto_espera) || 0;
+    const adc = Number(monto_adicionales) || 0;
+    const finalTotal = total != null && !isNaN(Number(total)) && Number(total) > 0 
+      ? Number(total) 
+      : (sub + esp + adc);
+
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -253,22 +269,41 @@ async function updateServicio(req, res, next) {
         monto_adicionales = ?, total = ?, estado_servicio = ?, observaciones_internas = ?
       WHERE id = ?`,
       [
-        nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
-        cleanFecha, cleanHora, categoria_vehiculo, origen, destino,
-        origen_2 || null, destino_2 || null,
-        vuelo_observacion, subtotal, minutos_espera, detalle_espera, monto_espera,
-        monto_adicionales, total, estado_servicio, observaciones_internas, id
+        nro_reserva || '',
+        cliente_id ?? null,
+        periodo_id ?? null,
+        conductor_id ?? null,
+        vehiculo_id ?? null,
+        cleanFecha,
+        cleanHora,
+        categoria_vehiculo || 'Auto Std',
+        origen || '',
+        destino || '',
+        origen_2 || null,
+        destino_2 || null,
+        vuelo_observacion || null,
+        sub,
+        Number(minutos_espera) || 0,
+        detalle_espera || null,
+        esp,
+        adc,
+        finalTotal,
+        estado_servicio || 'Confirmado',
+        observaciones_internas || null,
+        id
       ]
     );
 
     if (Array.isArray(pasajeros)) {
       await connection.execute(`DELETE FROM pasajeros WHERE servicio_id = ?`, [id]);
       for (const pax of pasajeros) {
-        await connection.execute(
-          `INSERT INTO pasajeros (servicio_id, nombre_completo, documento_o_referencia, telefono)
-           VALUES (?, ?, ?, ?)`,
-          [id, pax.nombre_completo, pax.documento_o_referencia || null, pax.telefono || null]
-        );
+        if (pax.nombre_completo && pax.nombre_completo.trim()) {
+          await connection.execute(
+            `INSERT INTO pasajeros (servicio_id, nombre_completo, documento_o_referencia, telefono)
+             VALUES (?, ?, ?, ?)`,
+            [id, pax.nombre_completo.trim(), pax.documento_o_referencia || null, pax.telefono || null]
+          );
+        }
       }
     }
 

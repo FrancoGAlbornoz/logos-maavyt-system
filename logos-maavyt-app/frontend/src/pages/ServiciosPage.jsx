@@ -277,6 +277,7 @@ export default function ServiciosPage() {
       vuelo_observacion: '',
       subtotal: 0,
       minutos_espera: 0,
+      detalle_espera: '',
       monto_espera: 0,
       monto_adicionales: 0,
       total: 0,
@@ -310,8 +311,18 @@ export default function ServiciosPage() {
   const handleSaveModal = async (e) => {
     e.preventDefault();
     try {
+      const sub = Number(editingService.subtotal) || 0;
+      const esp = Number(editingService.monto_espera) || 0;
+      const adc = Number(editingService.monto_adicionales) || 0;
+      const computedTotal = sub + esp + adc;
+
       const payload = {
         ...editingService,
+        subtotal: sub,
+        monto_espera: esp,
+        monto_adicionales: adc,
+        total: computedTotal,
+        detalle_espera: editingService.detalle_espera || null,
         fecha_servicio: formatInputDate(editingService.fecha_servicio) || getLocalDateStr()
       };
       if (editingService.id) {
@@ -617,8 +628,15 @@ export default function ServiciosPage() {
                         {s.vuelo_observacion || '-'}
                       </div>
                     </td>
-                    <td className="px-2.5 py-2 text-right font-bold text-slate-900 whitespace-nowrap">
-                      ${Number(s.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    <td className="px-2.5 py-2 text-right whitespace-nowrap">
+                      <div className="font-bold text-slate-900">
+                        ${Number(s.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </div>
+                      {(Number(s.monto_espera) > 0 || s.detalle_espera) && (
+                        <div className="text-[10px] text-indigo-600 font-medium truncate max-w-[120px] ml-auto" title={`${s.detalle_espera || 'Espera'}: $${Number(s.monto_espera || 0).toLocaleString('es-AR')}`}>
+                          +{s.detalle_espera ? `${s.detalle_espera} ` : ''}(${Number(s.monto_espera || 0).toLocaleString('es-AR')})
+                        </div>
+                      )}
                     </td>
                     <td className="px-2 py-2 text-center">
                       {!viewArchived ? (
@@ -699,7 +717,7 @@ export default function ServiciosPage() {
             </h3>
 
             <form onSubmit={handleSaveModal} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600">N° Reserva</label>
                   <input
@@ -722,6 +740,20 @@ export default function ServiciosPage() {
                     <option value="Ejecutivo">Ejecutivo</option>
                     <option value="Van">Van</option>
                     <option value="Minibus">Minibus</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600">Estado</label>
+                  <select
+                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm cursor-pointer font-semibold text-slate-700"
+                    value={editingService.estado_servicio || 'Confirmado'}
+                    onChange={(e) => setEditingService({ ...editingService, estado_servicio: e.target.value })}
+                  >
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="Realizado">Realizado</option>
+                    <option value="Pendiente">Pendiente</option>
+                    <option value="No Show">No Show</option>
+                    <option value="Cancelado">Cancelado</option>
                   </select>
                 </div>
               </div>
@@ -877,46 +909,77 @@ export default function ServiciosPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600">Subtotal ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm"
-                    value={editingService.subtotal}
-                    onChange={(e) => setEditingService({ ...editingService, subtotal: parseFloat(e.target.value) || 0 })}
-                  />
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span>💰 Liquidación y Facturación (SUBTOTAL - ESTADO/ESPERA - IMPORTE - TOTAL)</span>
+                  <span className="text-[11px] font-normal text-slate-500">Planilla de Facturación / Excel</span>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600">Espera ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm"
-                    value={editingService.monto_espera}
-                    onChange={(e) => setEditingService({ ...editingService, monto_espera: parseFloat(e.target.value) || 0 })}
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600">Subtotal ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      className="mt-1 w-full p-2 border border-slate-300 rounded text-sm bg-white font-semibold"
+                      value={editingService.subtotal ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : (parseFloat(e.target.value) || 0);
+                        setEditingService({ ...editingService, subtotal: val });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600">Detalle Espera / Adicional</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: peaje, espera 30 min, etc."
+                      className="mt-1 w-full p-2 border border-slate-300 rounded text-sm bg-white"
+                      value={editingService.detalle_espera || ''}
+                      onChange={(e) => setEditingService({ ...editingService, detalle_espera: e.target.value })}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600">Adicionales ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm"
-                    value={editingService.monto_adicionales}
-                    onChange={(e) => setEditingService({ ...editingService, monto_adicionales: parseFloat(e.target.value) || 0 })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-blue-900">Total ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="mt-1 w-full p-2 border border-blue-400 bg-blue-50/50 rounded text-sm font-bold text-blue-900"
-                    value={(Number(editingService.subtotal) || 0) + (Number(editingService.monto_espera) || 0) + (Number(editingService.monto_adicionales) || 0)}
-                    readOnly
-                  />
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600">Importe Espera ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      className="mt-1 w-full p-2 border border-slate-300 rounded text-sm bg-white font-semibold"
+                      value={editingService.monto_espera ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : (parseFloat(e.target.value) || 0);
+                        setEditingService({ ...editingService, monto_espera: val });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600">Otros Adicionales ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      className="mt-1 w-full p-2 border border-slate-300 rounded text-sm bg-white font-semibold"
+                      value={editingService.monto_adicionales ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : (parseFloat(e.target.value) || 0);
+                        setEditingService({ ...editingService, monto_adicionales: val });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-blue-900">Total Calculado ($)</label>
+                    <input
+                      type="text"
+                      className="mt-1 w-full p-2 border border-blue-400 bg-blue-50/50 rounded text-sm font-bold text-blue-900"
+                      value={`$${((Number(editingService.subtotal) || 0) + (Number(editingService.monto_espera) || 0) + (Number(editingService.monto_adicionales) || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      readOnly
+                    />
+                  </div>
                 </div>
               </div>
 
