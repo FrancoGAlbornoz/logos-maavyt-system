@@ -161,6 +161,41 @@ async function getServicioById(req, res, next) {
 }
 
 /**
+ * Obtiene o crea el periodo de liquidación correspondiente a una fecha YYYY-MM-DD
+ */
+async function getOrCreatePeriodoId(connection, fechaStr) {
+  if (!fechaStr) return null;
+  const str = String(fechaStr).substring(0, 10);
+  const parts = str.split('-');
+  if (parts.length !== 3) return null;
+  const anio = Number(parts[0]);
+  const mes = Number(parts[1]);
+  const dia = Number(parts[2]);
+  if (isNaN(anio) || isNaN(mes) || isNaN(dia)) return null;
+
+  const quincena = dia <= 15 ? 1 : 2;
+
+  const [rows] = await connection.execute(
+    `SELECT id FROM periodos_liquidacion WHERE anio = ? AND mes = ? AND quincena = ?`,
+    [anio, mes, quincena]
+  );
+  if (rows.length > 0) {
+    return rows[0].id;
+  }
+
+  const fInicio = `${anio}-${String(mes).padStart(2, '0')}-${quincena === 1 ? '01' : '16'}`;
+  const lastDay = new Date(anio, mes, 0).getDate();
+  const fFin = `${anio}-${String(mes).padStart(2, '0')}-${quincena === 1 ? '15' : lastDay}`;
+
+  const [res] = await connection.execute(
+    `INSERT INTO periodos_liquidacion (anio, mes, quincena, fecha_inicio, fecha_fin)
+     VALUES (?, ?, ?, ?, ?)`,
+    [anio, mes, quincena, fInicio, fFin]
+  );
+  return res.insertId;
+}
+
+/**
  * Crear un nuevo servicio de forma manual
  */
 async function createServicio(req, res, next) {
@@ -187,6 +222,9 @@ async function createServicio(req, res, next) {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
+    const autoPeriodoId = await getOrCreatePeriodoId(connection, cleanFecha);
+    const finalPeriodoId = autoPeriodoId || periodo_id || 1;
+
     const [result] = await connection.execute(
       `INSERT INTO servicios (
         nro_reserva, cliente_id, periodo_id, conductor_id, vehiculo_id,
@@ -196,7 +234,7 @@ async function createServicio(req, res, next) {
         monto_adicionales, total, estado_servicio, observaciones_internas
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        nro_reserva || 'S/N', cliente_id ?? 1, periodo_id ?? 1, conductor_id ?? 1, vehiculo_id ?? 1,
+        nro_reserva || 'S/N', cliente_id ?? 1, finalPeriodoId, conductor_id ?? 1, vehiculo_id ?? 1,
         cleanFecha, cleanHora, categoria_vehiculo || 'Auto Std',
         origen || '', destino || '', origen_2 || null, destino_2 || null,
         vuelo_observacion || null, sub, Number(minutos_espera) || 0,
@@ -260,6 +298,9 @@ async function updateServicio(req, res, next) {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
+    const autoPeriodoId = await getOrCreatePeriodoId(connection, cleanFecha);
+    const finalPeriodoId = autoPeriodoId || periodo_id || null;
+
     await connection.execute(
       `UPDATE servicios SET
         nro_reserva = ?, cliente_id = ?, periodo_id = ?, conductor_id = ?, vehiculo_id = ?,
@@ -271,7 +312,7 @@ async function updateServicio(req, res, next) {
       [
         nro_reserva || '',
         cliente_id ?? null,
-        periodo_id ?? null,
+        finalPeriodoId,
         conductor_id ?? null,
         vehiculo_id ?? null,
         cleanFecha,

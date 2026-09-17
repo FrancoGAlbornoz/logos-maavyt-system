@@ -5,7 +5,28 @@ const { pool } = require('../config/database');
  */
 async function getPeriodos(req, res, next) {
   try {
-    const [rows] = await pool.execute(`SELECT * FROM vista_liquidacion_quincenal`);
+    const [rows] = await pool.execute(`
+      SELECT 
+        pl.id AS periodo_id,
+        CONCAT(pl.anio, '-', LPAD(pl.mes, 2, '0'), ' Q', pl.quincena) AS periodo_nombre,
+        pl.anio,
+        pl.mes,
+        pl.quincena,
+        DATE_FORMAT(pl.fecha_inicio, '%Y-%m-%d') AS fecha_inicio,
+        DATE_FORMAT(pl.fecha_fin, '%Y-%m-%d') AS fecha_fin,
+        COUNT(CASE WHEN s.deleted_at IS NULL THEN s.id END) AS total_servicios,
+        SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.subtotal ELSE 0 END) AS total_subtotal,
+        SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.monto_espera ELSE 0 END) AS total_esperas,
+        SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.monto_adicionales ELSE 0 END) AS total_adicionales,
+        SUM(CASE WHEN s.deleted_at IS NULL AND s.estado_servicio != 'Cancelado' THEN s.total ELSE 0 END) AS total_general
+      FROM periodos_liquidacion pl
+      LEFT JOIN servicios s ON (
+        s.periodo_id = pl.id 
+        OR (s.fecha_servicio >= pl.fecha_inicio AND s.fecha_servicio <= pl.fecha_fin)
+      )
+      GROUP BY pl.id
+      ORDER BY pl.anio DESC, pl.mes DESC, pl.quincena DESC
+    `);
     res.json({ success: true, data: rows });
   } catch (error) {
     next(error);

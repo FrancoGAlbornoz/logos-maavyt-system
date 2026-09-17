@@ -11,9 +11,15 @@ export default function LiquidacionPage() {
     setLoading(true);
     try {
       const res = await fetchApi('/periodos');
-      setPeriodos(res.data || []);
-      if (res.data && res.data.length > 0) {
-        setSelectedPeriodoId(res.data[0].periodo_id);
+      const data = res.data || [];
+      setPeriodos(data);
+      if (data.length > 0) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        // Seleccionar periodo activo actual, o periodo con servicios, o el primero
+        const activePeriod = data.find(p => todayStr >= p.fecha_inicio && todayStr <= p.fecha_fin)
+          || data.find(p => p.total_servicios > 0)
+          || data[0];
+        setSelectedPeriodoId(activePeriod.periodo_id);
       }
     } catch (err) {
       console.error('Error al cargar períodos:', err);
@@ -47,22 +53,38 @@ export default function LiquidacionPage() {
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Liquidaciones & Reportes Quincenales</h2>
-          <p className="text-slate-500 text-sm mt-0.5">Selecciona la quincena para consultar el cierre financiero y descargar los documentos.</p>
+          <p className="text-slate-500 text-sm mt-0.5">Selecciona la quincena para consultar el cierre financiero y descargar la facturación oficial.</p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Calendar className="w-5 h-5 text-slate-400" />
-          <select
-            className="p-2.5 border border-slate-300 rounded-lg text-sm bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-            value={selectedPeriodoId}
-            onChange={(e) => setSelectedPeriodoId(e.target.value)}
-          >
-            {periodos.map((p) => (
-              <option key={p.periodo_id} value={p.periodo_id}>
-                {p.periodo_nombre} ({p.total_servicios} servicios)
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-center gap-2">
+          {periodos.slice(0, 4).map((p) => (
+            <button
+              key={p.periodo_id}
+              onClick={() => setSelectedPeriodoId(p.periodo_id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                String(selectedPeriodoId) === String(p.periodo_id)
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              {p.quincena === 1 ? '🌓' : '🌕'} {p.periodo_nombre} ({p.total_servicios})
+            </button>
+          ))}
+
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-4 h-4 text-slate-400" />
+            <select
+              className="p-1.5 border border-slate-300 rounded-lg text-xs bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+              value={selectedPeriodoId}
+              onChange={(e) => setSelectedPeriodoId(e.target.value)}
+            >
+              {periodos.map((p) => (
+                <option key={p.periodo_id} value={p.periodo_id}>
+                  {p.periodo_nombre} ({p.total_servicios} servicios)
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import { fetchApi, API_BASE } from '../api/axiosInstance';
 import {
   Search, Filter, Plus, Edit2, CheckCircle, Clock, XCircle,
   AlertTriangle, Calendar, Archive, RotateCcw, ShieldAlert, RefreshCw,
-  Printer, FileSpreadsheet, Users, Trash2
+  Printer, FileSpreadsheet, Users, Trash2, DollarSign
 } from 'lucide-react';
 
 // Helper de formateo seguro para fecha local YYYY-MM-DD
@@ -95,6 +95,34 @@ export default function ServiciosPage() {
         fechaDesdeCalc: todayStr,
         fechaHastaCalc: endStr,
         rangeLabel: `Próximos 7 días (${formatDateDisplay(todayStr)} al ${formatDateDisplay(endStr)})`
+      };
+    }
+
+    if (quickFilter === 'quincena1') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      const endDay = new Date(today.getFullYear(), today.getMonth(), 15);
+      const firstStr = getLocalDateStr(firstDay);
+      const endStr = getLocalDateStr(endDay);
+      const monthName = today.toLocaleString('es-AR', { month: 'long' });
+      const capitalMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+      return {
+        fechaDesdeCalc: firstStr,
+        fechaHastaCalc: endStr,
+        rangeLabel: `1ra Quincena ${capitalMonth} (${formatDateDisplay(firstStr)} al ${formatDateDisplay(endStr)})`
+      };
+    }
+
+    if (quickFilter === 'quincena2') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 16);
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const firstStr = getLocalDateStr(firstDay);
+      const lastStr = getLocalDateStr(lastDay);
+      const monthName = today.toLocaleString('es-AR', { month: 'long' });
+      const capitalMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+      return {
+        fechaDesdeCalc: firstStr,
+        fechaHastaCalc: lastStr,
+        rangeLabel: `2da Quincena ${capitalMonth} (${formatDateDisplay(firstStr)} al ${formatDateDisplay(lastStr)})`
       };
     }
 
@@ -202,6 +230,11 @@ export default function ServiciosPage() {
   const handleExportExcel = () => {
     const query = buildExportParams();
     window.open(`${API_BASE}/reportes/servicios/excel?${query}`, '_blank');
+  };
+
+  const handleExportLiquidacionExcel = () => {
+    const query = buildExportParams();
+    window.open(`${API_BASE}/reportes/liquidacion/excel?${query}`, '_blank');
   };
 
   const handleStatusChange = async (id, newStatus) => {
@@ -388,6 +421,16 @@ export default function ServiciosPage() {
             {syncingGmail ? 'Sincronizando...' : 'Sincronizar Gmail'}
           </button>
 
+          {/* Botón Excel Facturación / Liquidación con precios y formulas */}
+          <button
+            onClick={handleExportLiquidacionExcel}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
+            title="Descargar Planilla Oficial de Liquidación y Facturación con Precios, Subtotales, Esperas/Peajes y Totales para el filtro activo (ej: 1ra o 2da Quincena)"
+          >
+            <DollarSign className="w-4 h-4 text-emerald-200" />
+            Excel Facturación ($)
+          </button>
+
           {/* Botón Imprimir / PDF */}
           <button
             onClick={handlePrintPDF}
@@ -395,17 +438,17 @@ export default function ServiciosPage() {
             title="Abrir Hoja de Ruta en PDF A4 Horizontal lista para imprimir"
           >
             <Printer className="w-4 h-4 text-slate-300" />
-            Imprimir / PDF
+            PDF Hoja de Ruta
           </button>
 
-          {/* Botón Excel */}
+          {/* Botón Excel Operativo */}
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
-            title="Descargar Planilla de Servicios Operativos en Excel (.xlsx)"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg font-semibold text-xs sm:text-sm transition-all shadow-sm cursor-pointer"
+            title="Descargar Planilla de Servicios Operativos en Excel (sin precios)"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-            Excel
+            <FileSpreadsheet className="w-4 h-4 text-slate-500" />
+            Excel Operativo
           </button>
 
           {/* Toggle Ver Archivados */}
@@ -523,6 +566,30 @@ export default function ServiciosPage() {
                 }`}
               >
                 📅 Próximos 7 Días
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setQuickFilter('quincena1')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                  quickFilter === 'quincena1'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                🌓 1ra Quincena (1-15)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setQuickFilter('quincena2')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                  quickFilter === 'quincena2'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                🌕 2da Quincena (16-fin)
               </button>
 
               <button
