@@ -23,6 +23,27 @@ function formatDateDisplay(dateVal) {
   return str;
 }
 
+// Helper para inputs de formulario type="date" (estrictamente YYYY-MM-DD)
+function formatInputDate(dateVal) {
+  if (!dateVal) return '';
+  const str = String(dateVal).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.substring(0, 10);
+  }
+  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
+  if (dmyMatch) {
+    const d = dmyMatch[1].padStart(2, '0');
+    const m = dmyMatch[2].padStart(2, '0');
+    const y = dmyMatch[3];
+    return `${y}-${m}-${d}`;
+  }
+  const d = new Date(dateVal);
+  if (!isNaN(d.getTime())) {
+    return getLocalDateStr(d);
+  }
+  return '';
+}
+
 export default function ServiciosPage() {
   const [servicios, setServicios] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -231,9 +252,8 @@ export default function ServiciosPage() {
     try {
       const res = await fetchApi(`/servicios/${srv.id}`);
       const data = res.data;
-      if (data.fecha_servicio) {
-        data.fecha_servicio = String(data.fecha_servicio).substring(0, 10);
-      }
+      const rawDate = data?.fecha_servicio || srv.fecha_servicio;
+      data.fecha_servicio = formatInputDate(rawDate);
       if (!Array.isArray(data.pasajeros) || data.pasajeros.length === 0) {
         data.pasajeros = [{ nombre_completo: '', documento_o_referencia: '' }];
       }
@@ -292,9 +312,7 @@ export default function ServiciosPage() {
     try {
       const payload = {
         ...editingService,
-        fecha_servicio: editingService.fecha_servicio 
-          ? String(editingService.fecha_servicio).substring(0, 10) 
-          : getLocalDateStr()
+        fecha_servicio: formatInputDate(editingService.fecha_servicio) || getLocalDateStr()
       };
       if (editingService.id) {
         await fetchApi(`/servicios/${editingService.id}`, {
@@ -714,8 +732,8 @@ export default function ServiciosPage() {
                   <input
                     type="date"
                     required
-                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm"
-                    value={editingService.fecha_servicio ? editingService.fecha_servicio.substring(0, 10) : ''}
+                    className="mt-1 w-full p-2 border border-slate-300 rounded text-sm cursor-pointer"
+                    value={formatInputDate(editingService.fecha_servicio)}
                     onChange={(e) => setEditingService({ ...editingService, fecha_servicio: e.target.value })}
                   />
                 </div>

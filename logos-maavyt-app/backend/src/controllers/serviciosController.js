@@ -2,9 +2,29 @@ const { pool } = require('../config/database');
 
 function sanitizeDate(dateVal) {
   if (!dateVal) return null;
-  const str = String(dateVal);
-  if (str.includes('T')) {
-    return str.split('T')[0];
+  if (dateVal instanceof Date) {
+    const y = dateVal.getFullYear();
+    const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+    const d = String(dateVal.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const str = String(dateVal).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.substring(0, 10);
+  }
+  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
+  if (dmyMatch) {
+    const d = dmyMatch[1].padStart(2, '0');
+    const m = dmyMatch[2].padStart(2, '0');
+    const y = dmyMatch[3];
+    return `${y}-${m}-${d}`;
+  }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
   return str.substring(0, 10);
 }
@@ -92,10 +112,15 @@ async function getServicios(req, res, next) {
 
     const [rows] = await pool.execute(query, params);
 
+    const formattedRows = rows.map(r => ({
+      ...r,
+      fecha_servicio: sanitizeDate(r.fecha_servicio)
+    }));
+
     res.json({
       success: true,
-      count: rows.length,
-      data: rows
+      count: formattedRows.length,
+      data: formattedRows
     });
   } catch (error) {
     next(error);
