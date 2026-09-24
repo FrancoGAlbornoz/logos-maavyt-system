@@ -49,6 +49,7 @@ export default function ServiciosPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [estadoFilter, setEstadoFilter] = useState('');
+  const [clienteFilter, setClienteFilter] = useState('');
   const [quickFilter, setQuickFilter] = useState('proximos3'); // 'proximos3' | 'hoy' | 'semana' | 'mes' | 'custom'
   const [customFechaDesde, setCustomFechaDesde] = useState(() => getLocalDateStr(new Date()));
   const [customFechaHasta, setCustomFechaHasta] = useState(() => {
@@ -393,6 +394,19 @@ export default function ServiciosPage() {
     }
   };
 
+  
+  // Extraer empresas unicas para el filtro
+  const empresasUnicas = useMemo(() => {
+    const unicas = new Set(servicios.map(s => s.cliente_nombre).filter(Boolean));
+    return Array.from(unicas).sort();
+  }, [servicios]);
+
+  // Aplicar filtro local de empresa
+  const serviciosFiltrados = useMemo(() => {
+    if (!clienteFilter) return servicios;
+    return servicios.filter(s => s.cliente_nombre === clienteFilter);
+  }, [servicios, clienteFilter]);
+
   return (
     <div className="space-y-4">
       
@@ -509,9 +523,22 @@ export default function ServiciosPage() {
 
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-            <select
-              className="p-1.5 border border-slate-300 rounded-lg text-xs sm:text-sm bg-white cursor-pointer"
-              value={estadoFilter}
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+              <select
+                className="p-1.5 border border-slate-300 rounded-lg text-xs sm:text-sm bg-white cursor-pointer max-w-[150px]"
+                value={clienteFilter}
+                onChange={(e) => setClienteFilter(e.target.value)}
+              >
+                <option value="">Todas las Empresas</option>
+                {empresasUnicas.map(emp => (
+                  <option key={emp} value={emp}>{emp}</option>
+                ))}
+              </select>
+            </div>
+              <select
+                className="p-1.5 border border-slate-300 rounded-lg text-xs sm:text-sm bg-white cursor-pointer"
+                value={estadoFilter}
               onChange={(e) => setEstadoFilter(e.target.value)}
             >
               <option value="">Todos los Estados</option>
@@ -643,7 +670,7 @@ export default function ServiciosPage() {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-slate-500 text-sm">Cargando servicios...</div>
-        ) : servicios.length === 0 ? (
+        ) : serviciosFiltrados.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">
             {viewArchived ? 'No hay servicios archivados en la papelera.' : 'No se encontraron servicios vigentes para el filtro seleccionado.'}
           </div>

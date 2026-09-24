@@ -2,12 +2,42 @@ const imaps = require('imap-simple');
 const { simpleParser } = require('mailparser');
 const { detectEmailIntent, extractReservationNumbers, parseVoucherText } = require('./textParserService');
 const { calculatePrice } = require('./tariffService');
+const { parseImageWithGemini } = require('./visionService');
 const { pool } = require('../config/database');
 require('dotenv').config();
 
 /**
  * Conecta a Gmail vía IMAP y procesa la etiqueta "MAAVYT" asignando precios automáticos según el Tarifario
  */
+
+async function getClientIdByEmail(dbConnection, senderName, senderEmail) {
+  if (!senderEmail) return 1;
+
+  // Buscar por email exacto o dominio
+  const [rows] = await dbConnection.execute(
+    `SELECT id, nombre FROM clientes WHERE email = ? OR email LIKE ?`,
+    [senderEmail, `%@${senderEmail.split('@')[1]}`]
+  );
+  
+  if (rows.length > 0) {
+    return rows[0].id;
+  }
+
+  // Si no existe, crear el cliente basado en el dominio
+  let nombreCliente = senderName || senderEmail.split('@')[1].split('.')[0];
+  // Capitalize
+  nombreCliente = nombreCliente.charAt(0).toUpperCase() + nombreCliente.slice(1);
+
+  if (senderEmail.includes('toscana.com.ar')) nombreCliente = 'Toscana';
+  else if (senderEmail.includes('corporatelogistics.com.ar')) nombreCliente = 'Corporate Logistics';
+
+  const [res] = await dbConnection.execute(
+    `INSERT INTO clientes (nombre, email, contacto_nombre) VALUES (?, ?, 'Automático (Gmail)')`,
+    [nombreCliente, senderEmail]
+  );
+  return res.insertId;
+}
+
 async function syncGmailVouchers(options = {}) {
   const user = process.env.GMAIL_USER;
   const password = process.env.GMAIL_APP_PASSWORD;
@@ -117,6 +147,8 @@ async function performSync(user, password, targetFolder, options = {}) {
         const parsedEmail = await simpleParser(allParts.body);
         const subject = parsedEmail.subject || '';
         const textBody = parsedEmail.text || '';
+        const senderEmail = (parsedEmail.from && parsedEmail.from.value && parsedEmail.from.value[0]) ? parsedEmail.from.value[0].address : '';
+        const senderName = (parsedEmail.from && parsedEmail.from.value && parsedEmail.from.value[0]) ? parsedEmail.from.value[0].name : '';
         const htmlBody = parsedEmail.html || '';
 
         const intent = detectEmailIntent(subject, `${textBody} ${htmlBody}`);
@@ -124,6 +156,7 @@ async function performSync(user, password, targetFolder, options = {}) {
         const dbConnection = await pool.getConnection();
 
         try {
+          const clientId = await getClientIdByEmail(dbConnection, senderName, senderEmail);
           // CANCELACION
           if (intent === 'CANCELACION') {
             const reservationNumbers = extractReservationNumbers(`${textBody} ${htmlBody}`, subject);
@@ -152,7 +185,21 @@ async function performSync(user, password, targetFolder, options = {}) {
           }
 
           // MODIFICACION o ALTA
-          const parsedServices = parseVoucherText(textBody, htmlBody);
+          let parsedServices = parseVoucherText(textBody, htmlBody);
+
+          // Si no se encontraron servicios en el texto/html, buscar en imágenes adjuntas
+          if (parsedServices.length === 0 && parsedEmail.attachments && parsedEmail.attachments.length > 0) {
+            for (const att of parsedEmail.attachments) {
+              if (att.contentType.startsWith('image/')) {
+                console.log(`[Gmail Service] Imagen detectada en adjuntos (${att.filename}). Procesando con Vision...`);
+                const visionServices = await parseImageWithGemini(att.content, att.contentType);
+                if (visionServices && visionServices.length > 0) {
+                  parsedServices = visionServices;
+                  break; // Procesamos la primera imagen que contenga tabla
+                }
+              }
+            }
+          }
 
           if (parsedServices.length > 0) {
             for (const srv of parsedServices) {
@@ -243,7 +290,7 @@ async function performSync(user, password, targetFolder, options = {}) {
                   estado_servicio, observaciones_internas
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                  srv.nro_reserva, 1, periodoId, 1, 1,
+                  srv.nro_reserva, clientId, periodoId, 1, 1,
                   srv.fecha_servicio, srv.hora_servicio || '00:00:00', srv.categoria_vehiculo || 'Auto Std',
                   srv.origen || 'A definir', srv.destino || 'A definir',
                   srv.origen_2 || null, srv.destino_2 || null,
