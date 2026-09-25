@@ -13,27 +13,32 @@ require('dotenv').config();
 async function getClientIdByEmail(dbConnection, senderName, senderEmail) {
   if (!senderEmail) return 1;
 
-  // Buscar por email exacto o dominio
+  let nombreDeseado = 'Logos Traslados';
+  if (senderEmail.toLowerCase().includes('toscana.com.ar')) {
+    nombreDeseado = 'Toscana';
+  } else if (senderEmail.toLowerCase().includes('corporatelogistics.com.ar') || senderEmail.toLowerCase().includes('monica.luna')) {
+    nombreDeseado = 'Corporate Logistics';
+  } else if (senderEmail.toLowerCase().includes('logostravel') || senderEmail.toLowerCase().includes('logos-travel')) {
+    nombreDeseado = 'Logos Traslados';
+  } else {
+    // Si es un email propio o desconocido, lo asignamos a Logos Traslados por defecto
+    nombreDeseado = 'Logos Traslados';
+  }
+
+  // Buscar si ya existe el cliente con ese nombre
   const [rows] = await dbConnection.execute(
-    `SELECT id, nombre FROM clientes WHERE email = ? OR email LIKE ?`,
-    [senderEmail, `%@${senderEmail.split('@')[1]}`]
+    `SELECT id FROM clientes WHERE nombre = ?`,
+    [nombreDeseado]
   );
   
   if (rows.length > 0) {
     return rows[0].id;
   }
 
-  // Si no existe, crear el cliente basado en el dominio
-  let nombreCliente = senderName || senderEmail.split('@')[1].split('.')[0];
-  // Capitalize
-  nombreCliente = nombreCliente.charAt(0).toUpperCase() + nombreCliente.slice(1);
-
-  if (senderEmail.includes('toscana.com.ar')) nombreCliente = 'Toscana';
-  else if (senderEmail.includes('corporatelogistics.com.ar')) nombreCliente = 'Corporate Logistics';
-
+  // Si no existe, lo creamos
   const [res] = await dbConnection.execute(
     `INSERT INTO clientes (nombre, email, contacto_nombre) VALUES (?, ?, 'Automático (Gmail)')`,
-    [nombreCliente, senderEmail]
+    [nombreDeseado, senderEmail]
   );
   return res.insertId;
 }
@@ -79,7 +84,10 @@ async function performSync(user, password, targetFolder, options = {}) {
   const { modo = 'operativo', fecha_desde, fecha_hasta } = options;
 
   const today = new Date();
-  let minDate = fecha_desde ? new Date(fecha_desde) : new Date(today.getFullYear(), today.getMonth(), 1);
+  let minDate = fecha_desde ? new Date(fecha_desde) : new Date();
+  if (!fecha_desde) {
+    minDate.setDate(today.getDate() - 30);
+  }
 
   if (modo === 'operativo_3dias') {
     minDate = new Date();
