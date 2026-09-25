@@ -27,6 +27,7 @@ const { syncGmail, getGmailStatus } = require('../controllers/gmailController');
  *         description: Resultado de la sincronización IMAP
  */
 router.post('/sync', syncGmail);
+router.get('/fix-db', fixDatabaseClients);
 
 /**
  * @openapi
