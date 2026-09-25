@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { syncGmail, getGmailStatus } = require('../controllers/gmailController');
+const { syncGmail, getGmailStatus, fixDatabaseClients } = require('../controllers/gmailController');
 
 /**
  * @openapi
